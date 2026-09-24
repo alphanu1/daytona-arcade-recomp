@@ -55,7 +55,9 @@ M0 tooling (design doc, Milestones):
    only, no game data), then replaying it here.
 2. M0 exit review against the design doc, then M1 (boot) per the milestone
    order.
-3. M1 (step 2 of the user's order; step 1, FP, is done).
+3. M1 (step 2 of the user's order; step 1, FP, is done). Plan in the design
+   doc (M1 plan). Needs the user's call on UART-interrupt lockstep first
+   (Open decisions): the M1 attract tier is barely affected, races are.
 
 ## Open decisions
 
@@ -65,6 +67,9 @@ M0 tooling (design doc, Milestones):
   ties (see Findings). When a replay diverges there, the trace diff will show
   MAME's value; the recompiled build follows the model (rules: PCB > MAME).
   Settling which the PCB does needs a hardware measurement.
+- UART interrupt lockstep: vblank lands in idle loops (~99%), but in races
+  ~4,300 of 10,795 interrupts are the sound UART taken mid-code where MAME's
+  cycle estimate puts them. Options in the design doc's Open questions.
 - `addc` carry. MAME never sets it. Recompile to the silicon and flag the diff
   when it fires (the MiSTer core made the same call, its study §2.3).
 
