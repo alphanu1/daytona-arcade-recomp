@@ -28,6 +28,9 @@ target_link_libraries(i960dis PRIVATE i960)
 add_executable(tracediff tools/tracediff/main.cpp)
 target_link_libraries(tracediff PRIVATE trace)
 
+add_executable(traceinfo tools/traceinfo/main.cpp)
+target_link_libraries(traceinfo PRIVATE trace)
+
 enable_testing()
 
 add_executable(test_decode tests/test_decode.cpp)
