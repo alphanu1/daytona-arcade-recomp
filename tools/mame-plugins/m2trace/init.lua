@@ -9,6 +9,8 @@
 --   M2TRACE_FRAMES=n            exit after n frames
 --   M2TRACE_DUMP_EPOCH=n        dump every hashed region at epoch n ...
 --   M2TRACE_DUMP_DIR=dir        ... into dir (default "dumps")
+--   M2TRACE_SNAP_EVERY=n        save a screenshot every n frames (MAME's
+--                               snapshot directory; game output, never committed)
 --
 -- Enable with: mame daytona -plugin m2trace -pluginspath <mame plugins>;<this dir's parent>
 --
@@ -270,6 +272,7 @@ local function on_frame()
 		if replay_frames[replay_pos] then apply_inputs(replay_frames[replay_pos]) end
 	end
 	if out and cfg.trigger == "frame" then take_sample() end
+	if cfg.snap_every and frames_run % cfg.snap_every == 0 then manager.machine.video:snapshot() end
 	if cfg.frames and frames_run >= cfg.frames then manager.machine:exit() end
 end
 
@@ -298,6 +301,7 @@ function m2trace.startplugin()
 	cfg.frames = tonumber(env("M2TRACE_FRAMES") or "")
 	cfg.dump_epoch = tonumber(env("M2TRACE_DUMP_EPOCH") or "")
 	cfg.dump_dir = env("M2TRACE_DUMP_DIR")
+	cfg.snap_every = tonumber(env("M2TRACE_SNAP_EVERY") or "")
 	if cfg.trigger ~= "vblank-ack" and cfg.trigger ~= "frame" then
 		emu.print_error("m2trace: unknown trigger " .. cfg.trigger .. ", using vblank-ack")
 		cfg.trigger = "vblank-ack"

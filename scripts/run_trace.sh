@@ -15,14 +15,14 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$1"; shift
 SYSTEM="${SYSTEM:-daytona93}"
 rm -rf "$OUT"
-mkdir -p "$OUT/nvram" "$OUT/cfg" "$OUT/sta" "$OUT/diff"
+mkdir -p "$OUT/nvram" "$OUT/cfg" "$OUT/sta" "$OUT/diff" "$OUT/snap"
 export M2TRACE_OUT="${M2TRACE_OUT:-$OUT/trace.m2tr}"
 export M2TRACE_FRAMES="${M2TRACE_FRAMES:-600}"
 export M2TRACE_BRANCHES="${M2TRACE_BRANCHES:-$OUT/branches.txt}"
 exec "$ROOT/extern/mame/m2" "$SYSTEM" \
     -rompath "$ROOT/roms" \
     -nvram_directory "$OUT/nvram" -cfg_directory "$OUT/cfg" \
-    -state_directory "$OUT/sta" -diff_directory "$OUT/diff" \
+    -state_directory "$OUT/sta" -diff_directory "$OUT/diff" -snapshot_directory "$OUT/snap" \
     -video none -sound none -nothrottle -skip_gameinfo \
     -plugins -plugin m2trace \
     -pluginspath "$ROOT/extern/mame/plugins;$ROOT/tools/mame-plugins" \
