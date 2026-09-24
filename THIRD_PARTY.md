@@ -10,6 +10,9 @@ Vendored checkouts live in git-ignored `extern/` and are never committed.
 | MAME `src/devices/cpu/i960/i960.cpp` | same | same | BSD-3-Clause | Read, not compiled: the executor's opcode set, operand, EA and branch-target rules are what `src/i960/decode.cpp` follows. No code copied. | — |
 | MAME `src/mame/sega/model2*.cpp`, `src/mame/shared/segam1audio.cpp` | same | same | BSD-3-Clause | Read, not compiled: hardware figures in the design document. | — |
 
+| MAME Lua scripting API (`docs/source/luascript/`) | same | same | BSD-3-Clause | Read, not compiled: the API `tools/mame-plugins/m2trace` is written against. No code copied. | — |
+| lupa (Python binding with Lua 5.4) | https://github.com/scoder/lupa | PyPI release, not pinned | MIT | Test-only: runs the plugin's Lua under `tests/lua_*_test.py`. Not shipped. Tests skip (exit 77) without it. | — |
+
 Fetch with `scripts/fetch_mame.sh`, which checks out exactly the commit above.
 
 The Model 2 MiSTer core (https://github.com/alphanu1/sega-model2-mister,

@@ -30,6 +30,8 @@ extracted/
 ghidra_*/
 traces/
 dumps/
+*.m2tr
+*.m2in
 
 # ---- Build output ----
 build/

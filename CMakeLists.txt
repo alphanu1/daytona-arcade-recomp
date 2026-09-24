@@ -18,14 +18,37 @@ add_library(i960 STATIC
 )
 target_include_directories(i960 PUBLIC src)
 
+add_library(trace STATIC src/trace/trace.cpp)
+target_include_directories(trace PUBLIC src)
+
 add_executable(i960dis tools/i960dis/main.cpp)
 target_link_libraries(i960dis PRIVATE i960)
+
+add_executable(tracediff tools/tracediff/main.cpp)
+target_link_libraries(tracediff PRIVATE trace)
 
 enable_testing()
 
 add_executable(test_decode tests/test_decode.cpp)
 target_link_libraries(test_decode PRIVATE i960)
 add_test(NAME decode COMMAND test_decode)
+
+add_executable(test_trace tests/test_trace.cpp)
+target_link_libraries(test_trace PRIVATE trace)
+add_test(NAME trace COMMAND test_trace ${CMAKE_CURRENT_BINARY_DIR})
+
+# The MAME plugin's Lua core against the C++ trace library (needs lupa).
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_FOUND)
+    add_test(NAME lua_core
+        COMMAND Python3::Interpreter ${CMAKE_SOURCE_DIR}/tests/lua_core_test.py
+                ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/lua_core)
+    set_tests_properties(lua_core PROPERTIES SKIP_RETURN_CODE 77)
+    add_test(NAME lua_plugin_mock
+        COMMAND Python3::Interpreter ${CMAKE_SOURCE_DIR}/tests/lua_plugin_mock_test.py
+                ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/lua_plugin_mock)
+    set_tests_properties(lua_plugin_mock PROPERTIES SKIP_RETURN_CODE 77)
+endif()
 
 # Differential test against MAME's disassembler. Needs scripts/fetch_mame.sh.
 set(MAME_DIR ${CMAKE_SOURCE_DIR}/extern/mame CACHE PATH "Pinned MAME checkout")

@@ -2,12 +2,22 @@
 
 ## Current state
 
-M0 tooling under way. The i960 decoder library, the `i960dis` CLI and their
-tests exist and build (CMake + Ninja, C++20). No trace plugin, input recorder
-or diff tool yet.
+M0 tooling written; none of it has yet run against MAME with the real game.
+Built and tested here: i960 decoder + `i960dis`, trace library + `tracediff`,
+and the MAME plugin `tools/mame-plugins/m2trace` (trace recorder, input
+recorder/replayer). The plugin is tested only against a mock of MAME's Lua API.
 
 Build: `scripts/fetch_mame.sh` (optional, for the oracle test), then
 `cmake -S . -B build -G Ninja && ninja -C build && ctest --test-dir build`.
+The Lua tests need `pip install lupa` (Lua 5.4) and skip without it.
+
+Running the plugin (user's machine, with their ROM set):
+
+    M2TRACE_OUT=traces/attract.m2tr M2TRACE_FRAMES=600 \
+    mame daytona -plugin m2trace -pluginspath "<mame>/plugins;<repo>/tools/mame-plugins"
+
+`M2TRACE_RECORD_INPUT` / `M2TRACE_REPLAY_INPUT` record and replay inputs;
+`docs/trace-format.md` has the rest.
 
 ## Complete
 
@@ -21,20 +31,29 @@ Build: `scripts/fetch_mame.sh` (optional, for the oracle test), then
   `tools/i960dis` (linear sweep; `--interleave` joins the ROM_LOAD32_WORD pair),
   `tests/test_decode` (66 hand-encoded checks), `tests/mame_oracle`
   (differential against MAME's own `i960dis.cpp`, compiled unmodified).
+- M0 trace format, `tracediff`, MAME plugin and input recorder
+  (`docs/trace-format.md`, `src/trace`, `tools/tracediff`,
+  `tools/mame-plugins/m2trace`), with `tests/test_trace` (30 checks),
+  `tests/lua_core_test.py` (19) and `tests/lua_plugin_mock_test.py` (17).
 
 ## Next, in order
 
 M0 tooling (design doc, Milestones):
 
-1. MAME trace plugin, input recorder, trace diff tool. Needs a MAME build
-   with the trace hooks; the first real run needs the user's ROM set.
-   The first trace should also capture Daytona's PRCB (ICR / interrupt table)
-   to fix the real IRQ priority order, and whether it ever writes
-   `geo_prg_w` (0x00804000).
+1. First real run of `m2trace` on the user's machine (MAME + `daytona`):
+   600 frames of attract. Check, in this order: the plugin loads; taps fire;
+   vblank-ack samples once per frame (epochs ~= frames); two runs of the same
+   command give identical traces (MAME determinism — nothing else is
+   meaningful until this holds); record then replay a short input session and
+   get "replay matched". Record the numbers here.
+   From the same trace: the PRCB/ICR (IRQ priority order) and whether
+   `geo_prg_w` (0x00804000) is ever written.
 2. Run `i960dis` over the real program image (user's machine) and grep for
    `!quirk` and `!noexec` in reachable code; record counts, not bytes.
-3. Ghidra SLEIGH cross-check of the decoder (design doc, Ghidra section).
-4. Decide the FP oracle question (Open decisions) before the unit-test tier
+3. Indirect-branch harvest for recompiler seeds: needs a C++ hook in MAME's
+   i960 core or the debugger; not reachable from Lua taps.
+4. Ghidra SLEIGH cross-check of the decoder (design doc, Ghidra section).
+5. Decide the FP oracle question (Open decisions) before the unit-test tier
    is written, since it sets what "matches MAME" means for FP opcodes.
 
 ## Open decisions
@@ -79,6 +98,23 @@ i960 decoder (MAME `i960.cpp` / `i960dis.cpp` at `dddd7368`):
   (second word random per word), 0 mismatches, 596 s on 4 threads (this
   container). Text and reported length both compared.
 
+Trace tooling:
+
+- Every signal the design doc asks for except indirect branch targets is
+  reachable from MAME's Lua API alone (write/read taps, `read_range`,
+  `state[]`), so the plugin needs no MAME patch yet.
+- MAME's end-of-frame notifier is not on a guest instruction boundary, so it
+  cannot be a lockstep sample point; the default is the vblank-ack store.
+  Unverified for Daytona until the first trace.
+- Mock-driven plugin test: record -> replay reproduces the trace exactly; a
+  replay value applied one frame late is caught at the right frame; a memory
+  change is reported as a region hash at the right epoch.
+- The Lua encoder and the C++ writer produce byte-identical traces for the
+  same content; the Lua hash equals an independent Python FNV over 8 sizes
+  either side of the 1 KiB unpack block.
+- Hashing reads 1.4 MiB per sample in Lua; cost unmeasured until a real run.
+  If it is too slow, hash fewer regions per sample, not a weaker hash.
+
 Also found:
 
 - A separate geometrizer (0x00800000 / 0x00804000) walks the display list in
@@ -96,6 +132,7 @@ Also found:
 - SCSP for Daytona. It is the Model 1 sound board (MAME `model2o` config and
   the MiSTer core's working sound on hardware).
 - Five TGPs. One device; "5x" was a board-level package count.
+- MAME's frame notifier as the lockstep sample point (see Trace tooling).
 - Using MAME's disassembler as the decode authority. It is the text oracle
   only; semantics come from the executor.
 - A TGP microcode ROM dump. The program is uploaded at boot from the game's

@@ -1,0 +1,10 @@
+{
+  "plugin": {
+	"name": "m2trace",
+	"description": "Model 2 lockstep trace and input recorder (docs/trace-format.md)",
+	"version": "0.1.0",
+	"author": "daytona-arcade-recomp",
+	"type": "plugin",
+	"start": "false"
+  }
+}
