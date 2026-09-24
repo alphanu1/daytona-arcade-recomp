@@ -1,0 +1,61 @@
+# Local working notes — never committed. rules.md is the committed copy.
+CLAUDE.md
+
+# ---- Vendored / fetched dependencies ----
+# MAME, SDL3, SoftFloat, Musashi, Dear ImGui etc. Separate repositories with
+# their own history and licences; fetched and pinned, never committed.
+extern/
+third_party/
+vendor/
+
+# ---- ROMs and anything derived from them — LEGAL, not tidiness ----
+# The user supplies their own daytona.zip. No ROM bytes, no de-interleaved
+# image, no generated C++, no extracted assets enter this repository.
+*.zip
+*.7z
+*.rom
+*.bin
+*.ic*
+roms/
+rom/
+generated/
+extracted/
+
+# ---- Analysis working files ----
+# seeds.toml IS committed (our own naming work). Ghidra state, MAME traces
+# and display-list dumps reproduce game data and are not.
+*.gpr
+*.rep/
+*.gzf
+ghidra_*/
+traces/
+dumps/
+
+# ---- Build output ----
+build/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json
+compile_commands.json
+*.o
+*.a
+*.so
+*.dll
+*.dylib
+*.exe
+*.pdb
+*.obj
+*.lib
+.ninja_deps
+.ninja_log
+shadercache/
+*.spv
+
+# ---- Editor / OS ----
+.idea/
+*.swp
+*~
+.DS_Store
+__pycache__/
+*.pyc
