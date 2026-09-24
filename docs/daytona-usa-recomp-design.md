@@ -98,6 +98,16 @@ The recompiler turns the program ROM into one C++ function per i960 procedure, p
 5. Build a CFG per procedure, then emit C++ with one label per basic block and `goto` edges.
 6. Emit a dispatch table (address → function pointer) for all indirect calls; misses go to the fallback interpreter.
 
+**Decoder** (`src/i960`, shared by `i960dis` and the recompiler)
+
+- Decoding follows MAME's *executor* (`i960.cpp`), not its disassembler: the executor is the behavioural oracle. The accepted set is exactly what the executor implements: 62 CTRL/COBR/MEM opcodes and 102 REG opcodes. Anything else MAME's disassembler knows (Cx/Hx/Jx additions, `cmpibno`, `cmpibo`, `atadd`, `bswap`, ...) decodes but is marked not executable and goes to the fallback, logged. `0x6e1` is decoded as `movre`, as MAME executes it; it is undocumented.
+- Text output reproduces MAME's disassembler syntax exactly, so the two can be diffed as strings (`tests/mame_oracle.cpp` compiles MAME's `i960dis.cpp` unmodified against a small shim).
+- Three encodings are read differently by MAME's executor and disassembler. The decoder follows the executor and flags each one (`Insn::quirks`); hardware behaviour for all three is unconfirmed, and any occurrence in Daytona's code is a finding:
+  - CTRL/COBR bits 1:0 set: the executor adds them to the branch target (`sext(opcode, 24) - 4`); the disassembler masks them.
+  - MEMB bits 6:5 set: the executor ignores them; the disassembler rejects the word.
+  - MEMB scale > 4: the executor shifts by it; the disassembler rejects the word.
+- The i960 manual (270567-001) is not yet a second check on the decode; the Ghidra SLEIGH cross-check below is the planned one.
+
 **Ghidra as the analysis workbench**
 
 - Load the de-interleaved program image into Ghidra with its i960 processor module. It becomes the shared, annotated map of the game code.
