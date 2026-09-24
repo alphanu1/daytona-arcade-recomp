@@ -64,8 +64,10 @@ M0 tooling (design doc, Milestones):
   this.
 - Ghidra i960 module: mainline has none. Which third-party module, and its
   licence, is the user's call.
-- FP oracle. MAME's i960 FP is host `double`, not 80-bit. Options: diff in a
-  MAME-compatible `double` mode, or patch the trace MAME to use extF80.
+- FP oracle. MAME's i960 FP is host `double`, not 80-bit. Reachable code uses
+  only cvtri/cmpr/cvtir/scaler/cvtzri, so the proposal is: implement those in
+  extF80 (rules.md), sweep them against MAME's `double` versions, and treat
+  every disagreement as a finding. Needs the user's agreement.
 - `addc` carry. MAME never sets it. Recompile to the silicon and flag the diff
   when it fires (the MiSTer core made the same call, its study §2.3).
 
@@ -173,6 +175,9 @@ test mode; all replays self-checked "matched"):
 | + round 3 | 333 | 23,258 | 47 / 68 |
 
 - Still 0 non-executable opcodes and 0 quirk encodings in reachable code.
+- FP in reachable code: 108 instructions, only `cvtri` 39, `cmpr` 37, `cvtir`
+  22, `scaler` 8, `cvtzri` 2. No FP arithmetic, transcendentals or extended
+  forms: the FP oracle question shrinks to five operations.
 - Reached and confirmed by snapshot: Beginner race (auto and manual with
   shifting), time attack (start + accelerator at car select), test mode menu
   and sound test.
