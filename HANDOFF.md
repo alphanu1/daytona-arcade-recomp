@@ -45,12 +45,14 @@ Running the plugin (user's machine, with their ROM set):
 
 M0 tooling (design doc, Milestones):
 
-1. Input replay in real MAME: scripted coin/start/accelerate stream, check
-   "replay matched", and harvest branches from gameplay (attract exercised 18
-   of 31 statically-found indirect sites).
-2. Ghidra SLEIGH cross-check: blocked. Mainline Ghidra has no i960 module;
+1. Widen the harvest to the 9 indirect sites no run has exercised yet: other
+   courses (Advanced, Expert), manual transmission, time attack, test mode.
+   Script each with `scripts/make_input.py`; merge harvests into seeds.
+2. M0 exit review against the design doc, then M1 (boot) per the milestone
+   order.
+3. Ghidra SLEIGH cross-check: blocked. Mainline Ghidra has no i960 module;
    needs the user to choose a third-party one (Open decisions).
-3. Decide the FP oracle question (Open decisions) before the unit-test tier
+4. Decide the FP oracle question (Open decisions) before the unit-test tier
    is written, since it sets what "matches MAME" means for FP opcodes.
 
 ## Open decisions
@@ -141,6 +143,22 @@ frames of attract, headless, empty NVRAM each run):
 - Static reach with the 107 harvested targets as seeds: 89 -> 13,081
   instructions, 0 stops on non-executable opcodes, **0 quirk encodings in
   reachable code**, 31 indirect sites (18 exercised by attract).
+
+Scripted gameplay in real MAME (`scripts/inputs/race_basic.txt`: 3 coins,
+start, confirm selects, hold accelerator; 6,000 frames, no steering):
+
+- Replay self-check passes in real MAME: "replay matched the recording for
+  5997 frames", in two independent runs; the two branch harvests are identical.
+- First attempt stayed in attract: default settings take 3 coins per credit
+  (screen showed CREDIT 1/3). With 3 coins, snapshots show car select, then
+  the Beginner course, lap 2 of 8 by frame 6,000.
+- Full run 103 s emulated at ~14.5% speed, with or without tracing (MAME's
+  software 3D dominates; the Lua taps cost ~nothing).
+- Race harvest: 20 bx sites / 53 targets, 6 callx sites / 113 targets.
+  Interrupts over 6,000 frames: vblank 5,975, sound UART 4,820, timers never.
+- Attract + race seeds (168): static reach 21,850 instructions (attract alone
+  13,081), 26 of 35 static indirect sites exercised, still 0 non-executable
+  opcodes and 0 quirk encodings reached.
 
 Real program image (`daytona93`, epr-16530a/16531a, counts only):
 
