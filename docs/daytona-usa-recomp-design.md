@@ -110,6 +110,8 @@ The recompiler turns the program ROM into one C++ function per i960 procedure, p
 
 **Ghidra as the analysis workbench**
 
+> **Correction (checked 24 Sep 2026):** mainline Ghidra has no i960 processor module. At commit `8e9a8e7a` its `Ghidra/Processors` holds 39 modules and none is i960, and pypcode (Ghidra's SLEIGH packaged for Python) has none either. The plan below assumed one existed. Using Ghidra, and the SLEIGH cross-check, needs a third-party i960 module: which one, and its licence, is an open decision. Until then the decoder's only reference is MAME.
+
 - Load the de-interleaved program image into Ghidra with its i960 processor module. It becomes the shared, annotated map of the game code.
 - Use it to name functions, mark jump tables, label MMIO accesses (TGP FIFO, sound UART, I/O dual-port RAM, comm RAM) and document data structures such as car state and course tables.
 - A Ghidra script exports function starts, names and jump-table targets into `seeds.toml`, so every name reaches the generated C++ and trace logs read as `update_car_physics`, not `sub_0001A3F0`.
@@ -291,6 +293,8 @@ The critical path is i960 parity, then TGP parity; rendering and polish can proc
 
 - [ ] Which ROM revision(s) to support first (Japan, export, Special Edition / Hornet)?
 - [ ] Does Daytona copy or patch any i960 code in RAM at runtime?
+- [ ] Which third-party i960 SLEIGH module to use for Ghidra, if any (mainline has none), and is its licence compatible?
+- [ ] Is Daytona entirely interrupt-driven? Static reach from the boot record (`i960dis --follow`) finds 89 instructions ending in a `b .` idle loop, and no interrupt handlers in ROM (the PRCB's interrupt table is in RAM). Confirm from the MAME branch harvest.
 - [x] Does MAME run the `daytona` TGP at low level or with HLE handlers? **Low level**: the MB86234 core executes the microcode the i960 uploads. Its accuracy against the PCB is still unmeasured.
 - [ ] MAME's i960 FP is host `double`. When extF80 and MAME disagree, which does lockstep treat as correct: a MAME-compatible `double` mode for the diff, or a patched MAME with extF80?
 - [ ] MAME's `addc` never sets carry (both operands are `uint32_t`, so bit 32 of the sum is always 0; `subc` was fixed upstream, `addc` was not). Does Daytona execute `addc` with a carry-out that matters? Recompile to the silicon and flag the diff, as the MiSTer core does.

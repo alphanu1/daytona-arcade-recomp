@@ -15,6 +15,7 @@ endif()
 add_library(i960 STATIC
     src/i960/isa.cpp
     src/i960/decode.cpp
+    src/i960/reach.cpp
 )
 target_include_directories(i960 PUBLIC src)
 
@@ -32,6 +33,10 @@ enable_testing()
 add_executable(test_decode tests/test_decode.cpp)
 target_link_libraries(test_decode PRIVATE i960)
 add_test(NAME decode COMMAND test_decode)
+
+add_executable(test_reach tests/test_reach.cpp)
+target_link_libraries(test_reach PRIVATE i960)
+add_test(NAME reach COMMAND test_reach)
 
 add_executable(test_trace tests/test_trace.cpp)
 target_link_libraries(test_trace PRIVATE trace)

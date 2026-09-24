@@ -2,7 +2,10 @@
 
 ## Current state
 
-M0 tooling written; none of it has yet run against MAME with the real game.
+M0 tooling written; not yet run against MAME with the real game. The user's
+`daytona93.zip` is in this cloud container's git-ignored `roms/` (all 40 files
+CRC-checked against MAME); a Model-2-only MAME with the branch-harvest patch is
+building here (`scripts/build_mame.sh`).
 Built and tested here: i960 decoder + `i960dis`, trace library + `tracediff`,
 and the MAME plugin `tools/mame-plugins/m2trace` (trace recorder, input
 recorder/replayer). The plugin is tested only against a mock of MAME's Lua API.
@@ -31,6 +34,8 @@ Running the plugin (user's machine, with their ROM set):
   `tools/i960dis` (linear sweep; `--interleave` joins the ROM_LOAD32_WORD pair),
   `tests/test_decode` (66 hand-encoded checks), `tests/mame_oracle`
   (differential against MAME's own `i960dis.cpp`, compiled unmodified).
+- `src/i960/reach` (recursive descent + boot-record seeds), `i960dis --follow`,
+  `tests/test_reach` (19 checks).
 - M0 trace format, `tracediff`, MAME plugin and input recorder
   (`docs/trace-format.md`, `src/trace`, `tools/tracediff`,
   `tools/mame-plugins/m2trace`), with `tests/test_trace` (30 checks),
@@ -50,9 +55,11 @@ M0 tooling (design doc, Milestones):
    `geo_prg_w` (0x00804000) is ever written.
 2. Run `i960dis` over the real program image (user's machine) and grep for
    `!quirk` and `!noexec` in reachable code; record counts, not bytes.
-3. Indirect-branch harvest for recompiler seeds: needs a C++ hook in MAME's
-   i960 core or the debugger; not reachable from Lua taps.
-4. Ghidra SLEIGH cross-check of the decoder (design doc, Ghidra section).
+3. Indirect-branch harvest: patch written (`patches/mame/`), run with
+   `M2TRACE_BRANCHES=path` once MAME is built; feed targets to `--seed` and
+   measure how much of the program becomes reachable.
+4. Ghidra SLEIGH cross-check: blocked. Mainline Ghidra has no i960 module;
+   needs the user to choose a third-party one (Open decisions).
 5. Decide the FP oracle question (Open decisions) before the unit-test tier
    is written, since it sets what "matches MAME" means for FP opcodes.
 
@@ -60,6 +67,8 @@ M0 tooling (design doc, Milestones):
 
 - Project licence. The Model 2 MiSTer core is GPL-3; lifting from it decides
   this.
+- Ghidra i960 module: mainline has none. Which third-party module, and its
+  licence, is the user's call.
 - FP oracle. MAME's i960 FP is host `double`, not 80-bit. Options: diff in a
   MAME-compatible `double` mode, or patch the trace MAME to use extF80.
 - `addc` carry. MAME never sets it. Recompile to the silicon and flag the diff
@@ -114,6 +123,19 @@ Trace tooling:
   either side of the 1 KiB unpack block.
 - Hashing reads 1.4 MiB per sample in Lua; cost unmeasured until a real run.
   If it is too slow, hash fewer regions per sample, not a weaker hash.
+
+Real program image (`daytona93`, epr-16530a/16531a, counts only):
+
+- Linear sweep of the 256 KiB image: 55,098 lines, 16,280 undecodable words,
+  7,356 flagged quirks, 759 non-executable opcodes. Mostly data decoded as
+  code; not meaningful as code statistics.
+- Recursive descent from the boot record (`i960dis --follow`, with the
+  0x00220000 mirror): reset IP 0x860, 0 interrupt handlers (the PRCB's table
+  is in RAM), 4 system procedures; 89 reachable instructions, 1 indirect site,
+  0 quirks. The reset path ends in `b .` idle loops. Static analysis cannot
+  get past boot without harvested targets.
+- Mainline Ghidra (commit `8e9a8e7a`) has no i960 processor module; nor does
+  pypcode. The design doc assumed one.
 
 Also found:
 

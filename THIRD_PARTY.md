@@ -10,7 +10,9 @@ Vendored checkouts live in git-ignored `extern/` and are never committed.
 | MAME `src/devices/cpu/i960/i960.cpp` | same | same | BSD-3-Clause | Read, not compiled: the executor's opcode set, operand, EA and branch-target rules are what `src/i960/decode.cpp` follows. No code copied. | — |
 | MAME `src/mame/sega/model2*.cpp`, `src/mame/shared/segam1audio.cpp` | same | same | BSD-3-Clause | Read, not compiled: hardware figures in the design document. | — |
 
+| `patches/mame/0001-i960-indirect-branch-harvest.patch` | ours, against MAME `dddd7368` | — | BSD-3-Clause, as the file it patches | Applied by `scripts/fetch_mame.sh`. Logs every `bx`/`balx`/`callx`/`calls` target and interrupt vector target to `$M2TRACE_BRANCHES` at exit. Off unless that variable is set. | Adds `device_stop` and 5 log points to `src/devices/cpu/i960/i960.{h,cpp}`. |
 | MAME Lua scripting API (`docs/source/luascript/`) | same | same | BSD-3-Clause | Read, not compiled: the API `tools/mame-plugins/m2trace` is written against. No code copied. | — |
+| pypcode | https://github.com/angr/pypcode | PyPI 3.3.3 | BSD-2-Clause | Checked for an i960 SLEIGH spec (it has none). Not used by any build or test. | — |
 | lupa (Python binding with Lua 5.4) | https://github.com/scoder/lupa | PyPI release, not pinned | MIT | Test-only: runs the plugin's Lua under `tests/lua_*_test.py`. Not shipped. Tests skip (exit 77) without it. | — |
 
 Fetch with `scripts/fetch_mame.sh`, which checks out exactly the commit above.

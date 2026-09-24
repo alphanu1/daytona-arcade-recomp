@@ -1,0 +1,116 @@
+diff --git a/src/devices/cpu/i960/i960.cpp b/src/devices/cpu/i960/i960.cpp
+index f2a2f23cd4..c748a82b3a 100644
+--- a/src/devices/cpu/i960/i960.cpp
++++ b/src/devices/cpu/i960/i960.cpp
+@@ -558,6 +558,7 @@ void i960_cpu_device::take_interrupt(int vector, int lvl)
+ 	SP = (SP + 63) & ~63;
+ 	SP += 64;   // add padding to prevent buffer underflow when saving processor state
+ 
++	log_branch(BK_IRQ, uint32_t(vector), IRQV);
+ 	do_call(IRQV, 7, SP);
+ 
+ 	// save the processor state
+@@ -1597,6 +1598,7 @@ void i960_cpu_device::execute_op(uint32_t opcode)
+ 				{
+ 					fatalerror("I960: system calls that jump into supervisor mode aren't yet supported\n");
+ 				}
++				log_branch(BK_CALLS, m_PIP, t2);
+ 				do_call(t2, 0, m_r[I960_SP]);
+ 				break;
+ 
+@@ -2091,6 +2093,7 @@ void i960_cpu_device::execute_op(uint32_t opcode)
+ 		case 0x84: // bx
+ 			m_icount -= 3;
+ 			m_IP = get_ea(opcode);
++			log_branch(BK_BX, m_PIP, m_IP);
+ 			break;
+ 
+ 		case 0x85: // balx
+@@ -2098,10 +2101,12 @@ void i960_cpu_device::execute_op(uint32_t opcode)
+ 			t1 = get_ea(opcode);
+ 			m_r[(opcode>>19)&0x1f] = m_IP;
+ 			m_IP = t1;
++			log_branch(BK_BALX, m_PIP, t1);
+ 			break;
+ 
+ 		case 0x86: // callx
+ 			t1 = get_ea(opcode);
++			log_branch(BK_CALLX, m_PIP, t1);
+ 			do_call(t1, 0, m_r[I960_SP]);
+ 			break;
+ 
+@@ -2379,6 +2384,10 @@ void i960_cpu_device::execute_set_input(int irqline, int state)
+ 
+ void i960_cpu_device::device_start()
+ {
++	{
++		const char *path = getenv("M2TRACE_BRANCHES");
++		m_branch_log_on = path && *path;
++	}
+ 	space(AS_PROGRAM).cache(m_cache);
+ 	space(AS_PROGRAM).specific(m_program);
+ 
+@@ -2473,6 +2482,24 @@ void i960_cpu_device::state_string_export(const device_state_entry &entry, std::
+ 	}
+ }
+ 
++void i960_cpu_device::device_stop()
++{
++	// daytona-arcade-recomp: write the indirect-transfer harvest.
++	// One line per unique (kind, source, target): kind source target count.
++	// For irq, source is the interrupt vector.
++	if (!m_branch_log_on)
++		return;
++	const char *path = getenv("M2TRACE_BRANCHES");
++	FILE *f = fopen(path, "w");
++	if (!f)
++		return;
++	static const char *const kinds[] = { "bx", "balx", "callx", "calls", "irq" };
++	for (const auto &[key, count] : m_branch_log)
++		fprintf(f, "%s %08x %08x %llu\n", kinds[std::get<0>(key)], std::get<1>(key), std::get<2>(key),
++				(unsigned long long)count);
++	fclose(f);
++}
++
+ void i960_cpu_device::device_reset()
+ {
+ 	m_SAT        = m_program.read_dword(0);
+diff --git a/src/devices/cpu/i960/i960.h b/src/devices/cpu/i960/i960.h
+index 4200f98a99..ac763c0ad1 100644
+--- a/src/devices/cpu/i960/i960.h
++++ b/src/devices/cpu/i960/i960.h
+@@ -5,6 +5,9 @@
+ 
+ #pragma once
+ 
++#include <map>
++#include <tuple>
++
+ 
+ enum
+ {
+@@ -82,6 +85,7 @@ protected:
+ 	// device-level overrides
+ 	virtual void device_start() override ATTR_COLD;
+ 	virtual void device_reset() override ATTR_COLD;
++	virtual void device_stop() override ATTR_COLD;
+ 
+ 	// device_execute_interface overrides
+ 	virtual uint32_t execute_min_cycles() const noexcept override { return 1; } /* ???? TODO: Exact timing unknown */
+@@ -99,6 +103,16 @@ protected:
+ 	virtual std::unique_ptr<util::disasm_interface> create_disassembler() override;
+ 
+ private:
++	// daytona-arcade-recomp: indirect-transfer harvest (M2TRACE_BRANCHES)
++	enum branch_kind : uint32_t { BK_BX, BK_BALX, BK_CALLX, BK_CALLS, BK_IRQ };
++	std::map<std::tuple<uint32_t, uint32_t, uint32_t>, uint64_t> m_branch_log;
++	bool m_branch_log_on = false;
++	void log_branch(branch_kind kind, uint32_t from, uint32_t target)
++	{
++		if (m_branch_log_on)
++			m_branch_log[std::make_tuple(uint32_t(kind), from, target)]++;
++	}
++
+ 	void burst_stall_save(uint32_t t1, uint32_t t2, int index, int size, bool iswriteop);
+ 
+ 	struct {
