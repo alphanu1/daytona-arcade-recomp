@@ -22,20 +22,40 @@ We statically recompile the i960 game code of Daytona USA (Sega Model 2, 1994) i
 
 ## Target hardware summary
 
-Daytona runs on the original Model 2 board (MAME set `daytona`, driver `sega/model2.cpp`), not 2A/2B/2C, so the geometry processor is the Fujitsu TGP rather than a SHARC or TGPx4. Figures below are from memory and must be confirmed against the MAME driver before code depends on them.
+Daytona runs on the original Model 2 board (MAME set `daytona`, driver `sega/model2.cpp`, machine `model2o_state::daytona`), not 2A/2B/2C, so the geometry processor is the Fujitsu TGP rather than a SHARC or TGPx4.
 
-| Subsystem | Part (approx.) | Strategy |
+Figures below are confirmed against MAME at `dddd7368` (`src/mame/sega/model2.cpp`, `src/mame/shared/segam1audio.cpp`) and cross-checked against the Model 2 MiSTer core at `591e148e`. They are MAME's figures, not hardware measurements: rule 11 still applies, and the PCB settles anything marked provisional.
+
+| Subsystem | Part (MAME) | Clock (MAME) | Strategy |
+| --- | --- | --- | --- |
+| Main CPU | Intel i960KB (`I80960KB`), little-endian | `50_MHz_XTAL / 2` = 25 MHz | Static recompilation to C++ |
+| Coprocessor | One Fujitsu MB86234 TGP (`m_copro_tgp`); MAME's MB86234 is an empty subclass of its MB86233 | `50_MHz_XTAL` = 50 MHz | HLE in C++, validated against MAME's LLE TGP |
+| Geometrizer | Separate from the TGP: walks the display list in buffer RAM at vblank (`geo_parse`, `model2_v.cpp`) | — | Reimplemented; MAME's version is HLE |
+| Rasterizer | Sega custom chips; MAME has no device, it is driver code | — | Replaced by host GPU renderer |
+| 2D tilemaps / HUD | `S24TILE` (System 24 tilemap chip) | — | Reimplemented, composited on GPU |
+| Screen | `set_raw(32_MHz_XTAL/2, 656, 0, 496, 424, 0, 384)` | 16 MHz pixel clock | 496x384 active, 656x424 total |
+| Sound | Model 1 sound board (`SEGAM1AUDIO`): 68000 + YM3438 + 2x MultiPCM | 68000 `20_MHz_XTAL / 2` = 10 MHz, YM3438 8 MHz, MultiPCM 10 MHz each | Interpreted 68k + existing FM/MultiPCM cores |
+| Main ↔ sound | i8251 UART (uPD71051C) at 0x01c80000 | 31.25 kbit/s (`16_MHz_XTAL / 2 / 16`) | Serial byte stream, not a latch |
+| I/O | Model 1 I/O board (`SEGA_MODEL1IO`, BIOS `epr14869c`): own Z80, talks through an MB8421 dual-port RAM at 0x01c00000 | Z80 `32_MHz_XTAL / 8` = 4 MHz | HLE of the dual-port RAM protocol, SDL3 mapping |
+| Drive board | SJ25-0207-01 / 838-10646: Z80 + 2x 315-5296 + MSM6253 ADC; commands arrive through the I/O board | Z80 `XTAL(8'000'000)/2` = 4 MHz, "confirmed" | HLE: decode commands, map to SDL haptics |
+| Comm board | 837-10537: Z80 + uPD72103 HDLC, program EPR-16726; MAME simulates it (`M2COMM`), no Z80 runs | — | HLE shared-memory protocol over UDP |
+| Timers | 4 down-counters at 0x00f00000 | 25 MHz | Runtime device |
+
+**Derived timing.** Refresh = 16,000,000 / (656 x 424) = **57.524 Hz**. Line rate = 16,000,000 / 656 = **24.39 kHz**: medium resolution, not 15 kHz. MAME marks this line `// TODO: from System 24, might not be accurate for Model 2`, so the blanking figures are provisional until measured on a PCB.
+
+**Interrupts.** The board has a 12-bit request register (0x00e80000, write-to-acknowledge by AND) and enable register (0x00e80004, updated 80 ns after the write). MAME routes it to the four i960 lines:
+
+| Request bits | Source in `daytona` | i960 line |
 | --- | --- | --- |
-| Main CPU | Intel i960KB, ~25 MHz, little-endian | Static recompilation to C++ |
-| Geometry | Fujitsu MB86234 TGP + microcode ROM, fed by FIFO | HLE in C++, validated against MAME's TGP path |
-| Rasterizer | Sega custom chips, textured + Gouraud polys, ~496x384 | Replaced by host GPU renderer |
-| 2D tilemaps / HUD | Sega tilemap layer (text, speedo, map) | Reimplemented, composited on GPU |
-| Sound | 68000 + 2x Yamaha SCSP (YMF292), sample ROMs | Interpreted 68k + existing SCSP core |
-| Drive board | Z80 + motor driver (force feedback) | HLE: decode commands, map to SDL haptics |
-| Comm board | Link board for up to 8 cabinets | HLE shared-memory protocol over UDP |
-| I/O | Wheel, gas, brake ADCs; shifter, VR buttons, coin, test | SDL3 gamepad/joystick mapping |
+| 0 | vblank | IRQ0 |
+| 1 | nothing in MAME | IRQ1 |
+| 2-5 | timers 0-3 (bits 6-9 unused) | IRQ2 |
+| 10 | UART RxRDY or TxRDY | IRQ3 |
+| 11 | nothing in MAME | IRQ3 |
 
-Open question: exact refresh rate (believed ~57.5 Hz) and the vblank/TGP interrupt ordering; take both from MAME's screen and IRQ configuration.
+Priority is not fixed by the board. MAME takes each line's vector from the i960's ICR and uses `priority = vector / 8`, so **the ordering is whatever Daytona's PRCB programs**. Read it from a trace; do not assume one. On vblank MAME runs `geo_parse` first (when 60 Hz mode is set, or on even frames in 30 Hz mode, per `videocontrol` bit 0) and then raises bit 0.
+
+**TGP program.** The TGP has no microcode ROM. It holds in halt from reset until the i960 uploads its program: setting `coproctl` bit 31 (0x00980000) routes FIFO writes at 0x00884000 into the 4 K-word program RAM, and clearing it boots the TGP. Daytona's program is 2,024 words, stored in the game's own data ROM (MiSTer core, `tools/extract_tgp_microcode.py`). On the CPU board, `opr-14742a`/`14743a` (`copro_tgp_tables`) are the tables behind the TGP's sin/cos, atan, 1/x and 1/sqrt I/O ports; MAME labels `opr-14744`..`14747` (`other_data`) as further 1/x and 1/sqrt tables. MAME runs this microcode at low level.
 
 ## Architecture
 
@@ -48,7 +68,7 @@ flowchart TD
   GEN --> BUS[Runtime memory bus]
   BUS --> TGP[TGP HLE]
   BUS --> VID[Tilemaps + display lists]
-  BUS --> SND[Sound: 68k + SCSP]
+  BUS --> SND[Sound: 68k + YM3438 + MultiPCM]
   BUS --> IO[I/O, drive, comm HLE]
   TGP --> REN[GPU renderer]
   VID --> REN
@@ -61,7 +81,7 @@ The recompiler runs at build time on the user's machine, so no generated Sega co
 
 **Frame loop.** One host frame = one Model 2 video frame. The runtime runs generated code until the game waits on vblank, fires the vblank interrupt handler, drains the TGP FIFO into a display list, then renders and presents. The sound CPU runs on its own thread in fixed time slices, synced by audio buffer position.
 
-**Memory bus.** Main RAM, work RAM and shared RAM are flat host arrays accessed inline. MMIO ranges (TGP FIFO, tilemap RAM, palette, I/O, sound latch, comm RAM) go through a page-table of handlers, resolved at compile time where the address is constant.
+**Memory bus.** Main RAM, work RAM and shared RAM are flat host arrays accessed inline. MMIO ranges (TGP FIFO, geometrizer, tilemap RAM, palette, I/O dual-port RAM, sound UART, comm RAM) go through a page-table of handlers, resolved at compile time where the address is constant.
 
 **Fallback interpreter.** A small i960 interpreter runs any code the recompiler did not reach (unexpected indirect targets, self-test paths). Every fallback hit is logged with its address so the next recompile can include it.
 
@@ -81,7 +101,7 @@ The recompiler turns the program ROM into one C++ function per i960 procedure, p
 **Ghidra as the analysis workbench**
 
 - Load the de-interleaved program image into Ghidra with its i960 processor module. It becomes the shared, annotated map of the game code.
-- Use it to name functions, mark jump tables, label MMIO accesses (TGP FIFO, sound latch, I/O, comm RAM) and document data structures such as car state and course tables.
+- Use it to name functions, mark jump tables, label MMIO accesses (TGP FIFO, sound UART, I/O dual-port RAM, comm RAM) and document data structures such as car state and course tables.
 - A Ghidra script exports function starts, names and jump-table targets into `seeds.toml`, so every name reaches the generated C++ and trace logs read as `update_car_physics`, not `sub_0001A3F0`.
 - Cross-check our disassembler against Ghidra's SLEIGH decode: any mismatch in instruction length, operand or branch target is a bug in one of them. Confirm which i960 variant the module models, since KB FP instructions matter here.
 - Findings from MAME traces (indirect targets, code executed from RAM) are imported back into the Ghidra project so the map stays complete.
@@ -99,6 +119,8 @@ The i960 saves the 16 local registers on every `call` and restores them on `ret`
 
 The KB's FPU works in 80-bit extended precision, which ARM64 hosts lack. Any FP op whose result can reach memory or a compare goes through SoftFloat `extF80`; a fast path uses host `double` only where a unit test proves bit-identical results. Physics divergence from wrong rounding is the likeliest source of replay desync, so this is tested first.
 
+**MAME is not a bit-exact FP oracle.** MAME's i960 holds `fp0`-`fp3` as host `double` (`i960.h`, `double m_fp[4]`) and computes in `double`. Wherever Daytona's results depend on the extra bits of extended precision, correct extF80 output and MAME's output disagree, and the lockstep diff will report it. Unresolved; see Open questions.
+
 **Interrupts and faults**
 
 - Interrupts are taken only at safe points: backward branches, calls and returns emit a cheap `if (ctx.irq_pending)` check that dispatches through the interrupt table with the proper `intctl`/priority rules.
@@ -114,9 +136,9 @@ The TGP is replaced by C++ that consumes the same FIFO command stream the i960 w
 
 **TGP HLE**
 
-- The i960 pushes commands and parameters into the copro FIFO: matrix loads, window/viewport setup, lighting, model draws referencing polygon data in ROM, and raw polygon submits.
-- Each command is a C++ handler that transforms, lights, clips and projects, then emits screen-space polygons with texture, colour and priority attributes.
-- Reference is MAME's copro handling for `daytona`; if MAME runs the TGP microcode at low level there, we trace its output per command and match it bit-for-bit, including its fixed/float rounding.
+- The i960 uploads the TGP's program, then pushes commands and parameters into the copro FIFO and reads results back from the output FIFO.
+- Two units share the geometry work: the TGP (programmable, results can return to the i960) and the geometrizer, which walks the display list in buffer RAM at vblank and transforms, lights, clips and projects polygons for the rasterizer. Which of the two does what for Daytona is established from traces, not assumed.
+- MAME runs the TGP microcode at low level (MB86234 = MB86233 core), so we trace its output per command and match it bit-for-bit, including its fixed/float rounding. MAME's geometrizer is HLE in host `float`, so it is a weaker oracle for display-list output than the TGP is for FIFO results.
 - Any command that returns results to the i960 (e.g. collision or matrix readback) must return identical values, since game logic depends on them.
 
 **Display list**
@@ -146,10 +168,10 @@ These subsystems are small, timing-tolerant and well emulated already, so they a
 
 **Audio**
 
-- The sound board's 68000 runs in an embedded interpreter (e.g. Musashi, MIT-licensed) on its own thread; it is cheap at ~11 MHz.
-- The two SCSPs use a proven core: MAME's SCSP (BSD-3) or the one from a Saturn emulator. Licence check before choosing.
-- Main CPU ↔ sound CPU traffic is a command latch; the runtime queues writes with a timestamp so ordering matches the arcade even across threads.
-- Output via SDL3 audio at 44.1 kHz with a resampler; the SCSP's native rate is kept internally.
+- Daytona uses the Model 1 sound board, not the SCSP board later Model 2 revisions carry (see Target hardware summary). Its 68000 runs in an embedded interpreter (e.g. Musashi, MIT-licensed) on its own thread; it is cheap at 10 MHz.
+- The YM3438 and the two MultiPCMs use proven cores (MAME's `ymopn`/`multipcm`, or others). Licence check before choosing.
+- Main CPU ↔ sound CPU traffic is a serial byte stream through an i8251 UART at 31.25 kbit/s. The runtime queues bytes with a timestamp so ordering matches the arcade even across threads. The i960's IRQ3 handler (request bit 10) is the transmit loop: Daytona never polls the UART status (MiSTer core, R87), so the UART interrupt must be modelled or no sound data is sent.
+- Output via SDL3 audio at 44.1 kHz with a resampler; the chips' native rates are kept internally.
 
 **Inputs**
 
@@ -177,23 +199,23 @@ Correctness is proven by lockstep differential testing against MAME, frame by fr
 
 **MAME as oracle**
 
-- Build a patched MAME with a trace plugin (Lua `emu` API plus small C++ hooks in the i960 core and copro FIFO) that records per frame: hash of main/work RAM, i960 register file at vblank, every TGP FIFO word, TGP results returned to the CPU, sound latch writes, and output ports.
+- Build a patched MAME with a trace plugin (Lua `emu` API plus small C++ hooks in the i960 core and copro FIFO) that records per frame: hash of main/work RAM, i960 register file at vblank, every TGP FIFO word, TGP results returned to the CPU, sound UART bytes, and output ports.
 - Record input as a per-frame ADC/button stream (`.inp`-style, our own format). The same stream drives both MAME and our build.
 - A diff tool walks both traces and stops at the first divergent frame, then narrows to the first divergent FIFO word or RAM range.
 - Also harvest every indirect branch target MAME executes; these feed back into recompiler seeds.
 
 **Original hardware as ground truth**
 
-- Capture from a real Daytona PCB: video via a 15 kHz capture setup, audio line out, and (if feasible) a logic analyser on the TGP FIFO bus.
-- Use it for: exact refresh rate and frame pacing, polygon sort artefacts, texture filtering look, SCSP mix levels, and force-feedback behaviour.
+- Capture from a real Daytona PCB: video via a capture setup that accepts 24 kHz medium resolution (per MAME's timing; confirm on the PCB), audio line out, and (if feasible) a logic analyser on the TGP FIFO bus.
+- Use it for: exact refresh rate and frame pacing, polygon sort artefacts, texture filtering look, sound mix levels, and force-feedback behaviour.
 - When MAME and hardware disagree, hardware wins and the finding is logged as an upstream MAME note.
 
 **Sega Model 2 MiSTer core (Ben's FPGA project) as a third reference**
 
-- Link: to add (repo URL pending).
-- The HDL is a readable, hardware-level description of the board: TGP command handling, rasterizer polygon ordering, texture formats and SCSP behaviour. Use it to answer questions MAME's source leaves ambiguous.
+- Link: https://github.com/alphanu1/sega-model2-mister (GPL-3). It targets `daytona93` and runs attract mode with sound; 3D does not reach the screen yet.
+- The HDL is a readable, hardware-level description of the board: TGP command handling, rasterizer polygon ordering, texture formats and sound board behaviour. Use it to answer questions MAME's source leaves ambiguous.
 - A Verilator simulation of the core can emit the same per-frame trace format as the MAME plugin, giving a second independent oracle for the diff tool.
-- Running the core on MiSTer gives 15 kHz output for side-by-side capture when a real PCB isn't to hand.
+- Running the core on MiSTer gives native-rate video output for side-by-side capture when a real PCB isn't to hand.
 - Knowledge flows both ways: divergences found by the recomp's replay tests point at bugs in the core, and vice versa.
 
 **Test tiers**
@@ -257,7 +279,10 @@ The critical path is i960 parity, then TGP parity; rendering and polish can proc
 
 - [ ] Which ROM revision(s) to support first (Japan, export, Special Edition / Hornet)?
 - [ ] Does Daytona copy or patch any i960 code in RAM at runtime?
-- [ ] Does MAME run the `daytona` TGP at low level or with HLE handlers, and how accurate is it?
+- [x] Does MAME run the `daytona` TGP at low level or with HLE handlers? **Low level**: the MB86234 core executes the microcode the i960 uploads. Its accuracy against the PCB is still unmeasured.
+- [ ] MAME's i960 FP is host `double`. When extF80 and MAME disagree, which does lockstep treat as correct: a MAME-compatible `double` mode for the diff, or a patched MAME with extF80?
+- [ ] MAME's `addc` never sets carry (both operands are `uint32_t`, so bit 32 of the sum is always 0; `subc` was fixed upstream, `addc` was not). Does Daytona execute `addc` with a carry-out that matters? Recompile to the silicon and flag the diff, as the MiSTer core does.
+- [ ] Does Daytona upload geometrizer code (`geo_prg_w`, 0x00804000), or run its fixed transform loops only?
 - [ ] Ship a prebuilt runtime with runtime codegen, or require a local C++ compiler at import?
 - [ ] PCB access: which board revision is available, and can the TGP FIFO be probed?
-- [ ] Exact refresh rate and whether frame pacing should lock to host 60 Hz or run at native rate with VRR.
+- [ ] Refresh is 57.524 Hz per MAME (provisional; PCB unmeasured). Should frame pacing lock to host 60 Hz or run at native rate with VRR?
