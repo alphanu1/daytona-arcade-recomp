@@ -1,16 +1,17 @@
 diff --git a/src/devices/cpu/i960/i960.cpp b/src/devices/cpu/i960/i960.cpp
-index f2a2f23cd4..aa4e5ad79b 100644
+index f2a2f23cd4..735bd690ce 100644
 --- a/src/devices/cpu/i960/i960.cpp
 +++ b/src/devices/cpu/i960/i960.cpp
-@@ -558,6 +558,7 @@ void i960_cpu_device::take_interrupt(int vector, int lvl)
+@@ -558,6 +558,8 @@ void i960_cpu_device::take_interrupt(int vector, int lvl)
  	SP = (SP + 63) & ~63;
  	SP += 64;   // add padding to prevent buffer underflow when saving processor state
  
 +	log_branch(BK_IRQ, uint32_t(vector), IRQV);
++	log_branch(BK_IRQ_AT, m_IP, uint32_t(vector)); // where the interrupt was taken
  	do_call(IRQV, 7, SP);
  
  	// save the processor state
-@@ -1464,7 +1465,10 @@ void i960_cpu_device::execute_op(uint32_t opcode)
+@@ -1464,7 +1466,10 @@ void i960_cpu_device::execute_op(uint32_t opcode)
  				t2 = get_2_ri(opcode);
  				// interrupt control register
  				if(t1 == 0xff000004)
@@ -21,7 +22,7 @@ index f2a2f23cd4..aa4e5ad79b 100644
  				else
  					m_program.write_dword(t1,    m_program.read_dword(t2));
  				m_AC = (m_AC & ~7) | 2;
-@@ -1597,6 +1601,7 @@ void i960_cpu_device::execute_op(uint32_t opcode)
+@@ -1597,6 +1602,7 @@ void i960_cpu_device::execute_op(uint32_t opcode)
  				{
  					fatalerror("I960: system calls that jump into supervisor mode aren't yet supported\n");
  				}
@@ -29,7 +30,7 @@ index f2a2f23cd4..aa4e5ad79b 100644
  				do_call(t2, 0, m_r[I960_SP]);
  				break;
  
-@@ -2091,6 +2096,7 @@ void i960_cpu_device::execute_op(uint32_t opcode)
+@@ -2091,6 +2097,7 @@ void i960_cpu_device::execute_op(uint32_t opcode)
  		case 0x84: // bx
  			m_icount -= 3;
  			m_IP = get_ea(opcode);
@@ -37,7 +38,7 @@ index f2a2f23cd4..aa4e5ad79b 100644
  			break;
  
  		case 0x85: // balx
-@@ -2098,10 +2104,12 @@ void i960_cpu_device::execute_op(uint32_t opcode)
+@@ -2098,10 +2105,12 @@ void i960_cpu_device::execute_op(uint32_t opcode)
  			t1 = get_ea(opcode);
  			m_r[(opcode>>19)&0x1f] = m_IP;
  			m_IP = t1;
@@ -50,7 +51,7 @@ index f2a2f23cd4..aa4e5ad79b 100644
  			do_call(t1, 0, m_r[I960_SP]);
  			break;
  
-@@ -2379,6 +2387,10 @@ void i960_cpu_device::execute_set_input(int irqline, int state)
+@@ -2379,6 +2388,10 @@ void i960_cpu_device::execute_set_input(int irqline, int state)
  
  void i960_cpu_device::device_start()
  {
@@ -61,7 +62,7 @@ index f2a2f23cd4..aa4e5ad79b 100644
  	space(AS_PROGRAM).cache(m_cache);
  	space(AS_PROGRAM).specific(m_program);
  
-@@ -2473,6 +2485,25 @@ void i960_cpu_device::state_string_export(const device_state_entry &entry, std::
+@@ -2473,6 +2486,26 @@ void i960_cpu_device::state_string_export(const device_state_entry &entry, std::
  	}
  }
  
@@ -70,14 +71,15 @@ index f2a2f23cd4..aa4e5ad79b 100644
 +	// daytona-arcade-recomp: write the indirect-transfer harvest.
 +	// One line per unique (kind, source, target): kind source target count.
 +	// For irq, source is the interrupt vector; for icr (synmov to the
-+	// interrupt control register), target is the new ICR value.
++	// interrupt control register), target is the new ICR value; for irqat,
++	// source is the IP the interrupt was taken at and target the vector.
 +	if (!m_branch_log_on)
 +		return;
 +	const char *path = getenv("M2TRACE_BRANCHES");
 +	FILE *f = fopen(path, "w");
 +	if (!f)
 +		return;
-+	static const char *const kinds[] = { "bx", "balx", "callx", "calls", "irq", "icr" };
++	static const char *const kinds[] = { "bx", "balx", "callx", "calls", "irq", "icr", "irqat" };
 +	for (const auto &[key, count] : m_branch_log)
 +		fprintf(f, "%s %08x %08x %llu\n", kinds[std::get<0>(key)], std::get<1>(key), std::get<2>(key),
 +				(unsigned long long)count);
@@ -88,7 +90,7 @@ index f2a2f23cd4..aa4e5ad79b 100644
  {
  	m_SAT        = m_program.read_dword(0);
 diff --git a/src/devices/cpu/i960/i960.h b/src/devices/cpu/i960/i960.h
-index 4200f98a99..fe0ed8b262 100644
+index 4200f98a99..3a3f32cd7a 100644
 --- a/src/devices/cpu/i960/i960.h
 +++ b/src/devices/cpu/i960/i960.h
 @@ -5,6 +5,9 @@
@@ -114,7 +116,7 @@ index 4200f98a99..fe0ed8b262 100644
  
  private:
 +	// daytona-arcade-recomp: indirect-transfer harvest (M2TRACE_BRANCHES)
-+	enum branch_kind : uint32_t { BK_BX, BK_BALX, BK_CALLX, BK_CALLS, BK_IRQ, BK_ICR };
++	enum branch_kind : uint32_t { BK_BX, BK_BALX, BK_CALLX, BK_CALLS, BK_IRQ, BK_ICR, BK_IRQ_AT };
 +	std::map<std::tuple<uint32_t, uint32_t, uint32_t>, uint64_t> m_branch_log;
 +	bool m_branch_log_on = false;
 +	void log_branch(branch_kind kind, uint32_t from, uint32_t target)

@@ -274,6 +274,23 @@ One CMake project, C++20, SDL3 for window, input, haptics, audio and GPU, so pla
 - Save states for debugging only, built from the context struct plus RAM; not a player feature in v1.
 - Crash reports include the last guest PC and fallback-interpreter hits.
 
+## M1 plan: boot to attract, i960 parity only
+
+M1's exit criterion is "recompiled code reaches attract mode with RAM hashes matching MAME; no graphics" (Test tiers: Boot, 600 frames). It tests the recompiler and the i960 runtime, nothing else, so everything outside the i960 is taken from MAME's trace for now.
+
+**Devices are replayed from the MAME trace.** In 600 frames of attract the i960 reads the TGP FIFO 697,078 times, the I/O board's dual-port RAM 1,127,280 times, plus FIFO status, video control and the sound UART. Those values determine RAM. The TGP is M2's work and the I/O board and sound are M4's, so in M1 the runtime answers every read of a tapped device range with the value MAME returned at the same position in the trace, and checks every device write against the trace. A mismatch is reported with epoch and event index, which is the lockstep diff for free. Untapped MMIO (tilemap, palette) is plain RAM in M1.
+
+**Native execution, no instruction clock.** Generated code is straight C++ over the context struct and the bus; there is no per-instruction cycle counting and no clocked device model in the shipped path (the user's constraint, and the design's). Interrupts are taken at safe points (backward branches, calls, returns). Whether that can match MAME without a clock depends on where MAME takes interrupts; being measured (harvest patch now logs the IP each interrupt is taken at). If every interrupt lands in a `b .` idle loop, safe-point delivery reproduces MAME exactly.
+
+**Register cache.** MAME's i960 keeps 4 frames of local registers on chip: a call with the cache full writes the current set to its own frame, a return above depth 4 reloads it from memory, `flushreg` writes all cached sets. Stack RAM, and so the RAM hashes, depend on this, so the runtime reproduces MAME's model exactly (a depth counter and a 4-slot array, memcpy cost). The real KB spills the oldest set instead; code that reads frame memory without `flushreg` would see the difference. Recorded as a MAME-vs-hardware question; MAME's model is used for lockstep.
+
+**Order of work.**
+
+1. Runtime core: context (g/l registers, AC, PC, TC, IP, register cache), bus (flat RAM arrays for ROM, RAM 0x00200000, work RAM, buffer RAM, backup SRAM; page table for MMIO), trace-replay device, interrupt controller (request/enable registers, ICR, pending table as MAME keeps it).
+2. Instruction semantics as inline C++ functions, one per opcode in MAME's executable set, shared by the fallback interpreter and the generated code, so there is one definition of each instruction. FP through `src/i960/fp` fast paths.
+3. Fallback interpreter over those semantics. First target: interpreter alone reaches attract with RAM hashes matching MAME for 600 frames. This proves the runtime, the replay and the semantics before any code generation.
+4. Recompiler: per-procedure C++ from `reach` (seeds: boot record + MAME harvest), one label per basic block, dispatch table for indirect targets, misses to the interpreter (logged). Exit: generated code reaches attract with matching hashes for 600 frames, and the interpreter-hit log is empty or explained.
+
 ## Milestones, risks, open questions
 
 The critical path is i960 parity, then TGP parity; rendering and polish can proceed in parallel once display lists are stable.
