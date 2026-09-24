@@ -55,9 +55,7 @@ M0 tooling (design doc, Milestones):
    only, no game data), then replaying it here.
 2. M0 exit review against the design doc, then M1 (boot) per the milestone
    order.
-3. FP (step 1 of the user's order): done, see Findings. Full-input MAME
-   comparison counts to be recorded when `fp_vs_mame` (no flag) finishes.
-4. M1 (step 2 of the user's order).
+3. M1 (step 2 of the user's order; step 1, FP, is done).
 
 ## Open decisions
 
@@ -201,12 +199,18 @@ FP, step 1 (`src/i960/fp`, `tests/test_fp`, `tests/fp_vs_mame`):
 - Bug found on the way: SoftFloat's `extFloat80_t` field order depends on
   `LITTLEENDIAN`, defined only in its private platform.h; C++ callers saw the
   other order and every result was wrong. Now a public definition.
-- MAME vs model (quick run, every 256th input):
-  | op | disagreement |
-  | cvtir, cmpr | none |
-  | cvtri | every exact .5 tie: MAME `round()` away from zero, IEEE to even |
-  | cvtri, cvtzri NaN/out of range | none for MAME on x86-64; MAME on ARM64 differs (C cast is UB; saturates) |
-  | scaler | only 0 x 2^n (n >= 1024) and inf x 2^n (n <= -1075): MAME pow() gives NaN |
+- MAME vs model, every input (`fp_vs_mame`, ~15 min on 4 cores):
+  | op | inputs | disagree (MAME on x86-64) | cause |
+  | cvtri | 4,294,967,296 | 8,388,608 | every exact .5 tie: MAME `round()` away from zero, IEEE to even |
+  | cvtzri | 4,294,967,296 | 0 | |
+  | cvtir | 4,294,967,296 | 0 | |
+  | cmpr | 268,435,456 pairs | 0 | |
+  | scaler | 77,309,411,328 (18 exponents) | 14 | 0 x 2^n (n >= 1024), inf x 2^n (n <= -1075): MAME pow() gives NaN |
+  MAME built for ARM64 also differs on 830,472,191 cvtzri and 830,472,191 +
+  8,388,608 cvtri inputs (NaN, out of range): its C casts are UB and
+  saturate, so MAME's own result is host-dependent there.
+- Practical risk for lockstep: a Daytona cvtri on an exact .5 value. The
+  trace diff will show it as a register/RAM divergence right after a cvtri.
 - MAME never sets FP exception flags in AC; the model reports them. Where the
   i960 records them and whether Daytona reads them is unconfirmed.
 
