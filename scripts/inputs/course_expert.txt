@@ -1,0 +1,14 @@
+# Circuit select: steer right twice to Long (Expert), step to choose.
+frames 6000
+1200-1209 coin=1
+1240-1249 coin=1
+1280-1289 coin=1
+1400-1409 start=1
+1450-1479 steer=0xe0
+1480-1509 steer=0x80
+1510-1539 steer=0xe0
+1540-1569 steer=0x80
+1580-1599 accel=0xe0
+1740-1759 accel=0xe0
+1850-5999 accel=0xe0
+2050-5999 steer=0x98

@@ -1,10 +1,10 @@
-# Car select: start + accelerator gives time attack (on-screen hint).
+# Beginner, then time attack: hold start and step on the accelerator at car select.
 frames 6000
 1200-1209 coin=1
 1240-1249 coin=1
 1280-1289 coin=1
 1400-1409 start=1
-1400-5999 accel=0xe0
-1600-1700 start=1
-1800-1900 start=1
-2000-2100 start=1
+1450-1469 accel=0xe0
+1650-1720 start=1
+1670-1689 accel=0xe0
+1850-5999 accel=0xe0

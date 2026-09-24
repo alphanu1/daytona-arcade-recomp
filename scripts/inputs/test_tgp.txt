@@ -1,0 +1,13 @@
+# Test mode: red (vr1) moves down, green (vr4) up, start selects.
+# Menu: bookkeeping, game system, coin assignment, input, output, drive bd,
+# sound, TGP test (8th), memory test, backup ram clear, exit.
+frames 3000
+1200-1209 test=1
+1400-1405 vr1=1
+1440-1445 vr1=1
+1480-1485 vr1=1
+1520-1525 vr1=1
+1560-1565 vr1=1
+1600-1605 vr1=1
+1640-1645 vr1=1
+1700-1709 start=1
