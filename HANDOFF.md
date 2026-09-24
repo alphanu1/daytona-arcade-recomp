@@ -75,8 +75,9 @@ i960 decoder (MAME `i960.cpp` / `i960dis.cpp` at `dddd7368`):
   words, 0 mismatches, 8.0 s on 4 threads (this container). Mutation check:
   three deliberate faults (MEMB scale bound, COBR displacement mask, one REG
   mnemonic) gave 79,619 / 2,220,826 / 9,837 mismatches, so the test can fail.
-- Exhaustive run over all 2^32 first words: in progress at this commit;
-  result recorded in the next one.
+- Exhaustive run, `mame_oracle --exhaustive`: all 4,294,967,296 first words
+  (second word random per word), 0 mismatches, 596 s on 4 threads (this
+  container). Text and reported length both compared.
 
 Also found:
 
