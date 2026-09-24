@@ -55,17 +55,18 @@ M0 tooling (design doc, Milestones):
    only, no game data), then replaying it here.
 2. M0 exit review against the design doc, then M1 (boot) per the milestone
    order.
-3. Decide the FP oracle question (Open decisions) before the unit-test tier
-   is written, since it sets what "matches MAME" means for FP opcodes.
+3. FP (step 1 of the user's order): done, see Findings. Full-input MAME
+   comparison counts to be recorded when `fp_vs_mame` (no flag) finishes.
+4. M1 (step 2 of the user's order).
 
 ## Open decisions
 
 - Project licence. The Model 2 MiSTer core is GPL-3; lifting from it decides
   this.
-- FP oracle. MAME's i960 FP is host `double`, not 80-bit. Reachable code uses
-  only cvtri/cmpr/cvtir/scaler/cvtzri, so the proposal is: implement those in
-  extF80 (rules.md), sweep them against MAME's `double` versions, and treat
-  every disagreement as a finding. Needs the user's agreement.
+- FP oracle for lockstep: MAME disagrees with the hardware model on cvtri
+  ties (see Findings). When a replay diverges there, the trace diff will show
+  MAME's value; the recompiled build follows the model (rules: PCB > MAME).
+  Settling which the PCB does needs a hardware measurement.
 - `addc` carry. MAME never sets it. Recompile to the silicon and flag the diff
   when it fires (the MiSTer core made the same call, its study §2.3).
 
@@ -185,6 +186,29 @@ test mode; all replays self-checked "matched"):
   twice, deterministically). Cause unknown; not guessed further.
 - Circuit and car select confirm on an accelerator press ("step to choose");
   holding the accelerator from the start picks the defaults.
+
+FP, step 1 (`src/i960/fp`, `tests/test_fp`, `tests/fp_vs_mame`):
+
+- Operand forms measured: all 108 reachable FP instructions use g/l registers
+  (single precision in and out); none uses fp0-fp3 or FP literals. AC =
+  `3f001000` in all 1,153 attract samples: round to nearest, exceptions masked.
+- Reference = SoftFloat 3e extF80; native fast paths = host float, round to
+  nearest. Exhaustive proof: cvtri, cvtzri, cvtir over every 2^32 input, scaler
+  over every 2^32 single at n = 0, 1, -1, 127, 128, -126, -127, -149, -150, 254,
+  -300; 0 mismatches, ~5 min on 4 cores. Plus 36 hand-computed IEEE values,
+  specials cross-product, 2^26 random each. A MAME-style fast cvtri
+  (`std::round`) fails with 130,905 mismatches (quick run), so the proof bites.
+- Bug found on the way: SoftFloat's `extFloat80_t` field order depends on
+  `LITTLEENDIAN`, defined only in its private platform.h; C++ callers saw the
+  other order and every result was wrong. Now a public definition.
+- MAME vs model (quick run, every 256th input):
+  | op | disagreement |
+  | cvtir, cmpr | none |
+  | cvtri | every exact .5 tie: MAME `round()` away from zero, IEEE to even |
+  | cvtri, cvtzri NaN/out of range | none for MAME on x86-64; MAME on ARM64 differs (C cast is UB; saturates) |
+  | scaler | only 0 x 2^n (n >= 1024) and inf x 2^n (n <= -1075): MAME pow() gives NaN |
+- MAME never sets FP exception flags in AC; the model reports them. Where the
+  i960 records them and whether Daytona reads them is unconfirmed.
 
 Real program image (`daytona93`, epr-16530a/16531a, counts only):
 

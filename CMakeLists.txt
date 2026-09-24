@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(daytona_recomp LANGUAGES CXX)
+project(daytona_recomp LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,12 +12,36 @@ else()
     add_compile_options(-Wall -Wextra -fno-fast-math)
 endif()
 
+# Berkeley SoftFloat 3e (scripts/fetch_softfloat.sh): the extF80 reference
+# model for i960 FP. 8086-SSE specialisation, FAST_INT64 build.
+set(SOFTFLOAT_DIR ${CMAKE_SOURCE_DIR}/extern/softfloat)
+include(cmake/softfloat_sources.cmake)
+add_library(softfloat STATIC ${SOFTFLOAT_SOURCES})
+target_include_directories(softfloat
+    PUBLIC ${SOFTFLOAT_DIR}/source/include
+    PRIVATE ${SOFTFLOAT_DIR}/build/Linux-x86_64-GCC ${SOFTFLOAT_DIR}/source/8086-SSE)
+target_compile_definitions(softfloat PRIVATE
+    SOFTFLOAT_ROUND_ODD INLINE_LEVEL=5 SOFTFLOAT_FAST_DIV32TO16 SOFTFLOAT_FAST_DIV64TO32)
+# FAST_INT64 selects the by-value extF80 API and LITTLEENDIAN the field order of
+# extFloat80_t in the public headers, so users must see both (a mismatch silently
+# swaps signExp and signif across the call boundary). Little-endian hosts only.
+# Rounding mode and flags are globals in SoftFloat: make them per thread.
+target_compile_definitions(softfloat PUBLIC SOFTFLOAT_FAST_INT64 LITTLEENDIAN=1
+    $<$<COMPILE_LANGUAGE:C>:THREAD_LOCAL=_Thread_local>
+    $<$<COMPILE_LANGUAGE:CXX>:THREAD_LOCAL=thread_local>)
+set_target_properties(softfloat PROPERTIES C_STANDARD 11)
+if(NOT MSVC)
+    target_compile_options(softfloat PRIVATE -w) # upstream code, not ours
+endif()
+
 add_library(i960 STATIC
     src/i960/isa.cpp
     src/i960/decode.cpp
     src/i960/reach.cpp
+    src/i960/fp.cpp
 )
 target_include_directories(i960 PUBLIC src)
+target_link_libraries(i960 PUBLIC softfloat)
 
 add_library(trace STATIC src/trace/trace.cpp)
 target_include_directories(trace PUBLIC src)
@@ -36,6 +60,16 @@ enable_testing()
 add_executable(test_decode tests/test_decode.cpp)
 target_link_libraries(test_decode PRIVATE i960)
 add_test(NAME decode COMMAND test_decode)
+
+add_executable(test_fp tests/test_fp.cpp)
+target_link_libraries(test_fp PRIVATE i960)
+find_package(Threads REQUIRED)
+target_link_libraries(test_fp PRIVATE Threads::Threads)
+add_test(NAME fp COMMAND test_fp)
+
+# Measurement, not a test: where MAME's double FP disagrees with the model.
+add_executable(fp_vs_mame tests/fp_vs_mame.cpp)
+target_link_libraries(fp_vs_mame PRIVATE i960 Threads::Threads)
 
 add_executable(test_reach tests/test_reach.cpp)
 target_link_libraries(test_reach PRIVATE i960)
