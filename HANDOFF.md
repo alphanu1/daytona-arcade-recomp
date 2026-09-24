@@ -45,9 +45,12 @@ Running the plugin (user's machine, with their ROM set):
 
 M0 tooling (design doc, Milestones):
 
-1. Widen the harvest to the 9 indirect sites no run has exercised yet: other
-   courses (Advanced, Expert), manual transmission, time attack, test mode.
-   Script each with `scripts/make_input.py`; merge harvests into seeds.
+1. Harvest the 21 indirect sites no run has hit (47 of 68 so far). Two
+   scripted screens do not respond as expected (see Findings): circuit
+   select ignores scripted steering, and test-mode red presses land one item
+   short (SOUND TEST instead of TGP TEST). Best settled by the user playing
+   once with M2TRACE_RECORD_INPUT on their PC and sharing the .m2in (inputs
+   only, no game data), then replaying it here.
 2. M0 exit review against the design doc, then M1 (boot) per the milestone
    order.
 3. Ghidra SLEIGH cross-check: blocked. Mainline Ghidra has no i960 module;
@@ -159,6 +162,26 @@ start, confirm selects, hold accelerator; 6,000 frames, no steering):
 - Attract + race seeds (168): static reach 21,850 instructions (attract alone
   13,081), 26 of 35 static indirect sites exercised, still 0 non-executable
   opcodes and 0 quirk encodings reached.
+
+Harvest over 15 scripted runs (attract, races, manual gearbox, time attack,
+test mode; all replays self-checked "matched"):
+
+| runs | merged seeds | static reach | indirect sites hit / found |
+| attract | 107 | 13,081 | 18 / 31 |
+| + race | 168 | 21,850 | 26 / 35 |
+| + manual, time attack, test mode | 319 | 23,138 | 46 / 67 |
+| + round 3 | 333 | 23,258 | 47 / 68 |
+
+- Still 0 non-executable opcodes and 0 quirk encodings in reachable code.
+- Reached and confirmed by snapshot: Beginner race (auto and manual with
+  shifting), time attack (start + accelerator at car select), test mode menu
+  and sound test.
+- Not reached: Advanced/Expert courses (circuit select stays on Beginner with
+  steering pulses held 30 frames at 0xe0 from frame 1560 and from 1450), TGP
+  and memory test items (7 red presses from frame 1500 land on SOUND TEST
+  twice, deterministically). Cause unknown; not guessed further.
+- Circuit and car select confirm on an accelerator press ("step to choose");
+  holding the accelerator from the start picks the defaults.
 
 Real program image (`daytona93`, epr-16530a/16531a, counts only):
 
