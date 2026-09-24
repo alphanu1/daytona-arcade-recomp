@@ -1,0 +1,13 @@
+# Test mode: 8 red presses from the first item (from frame 1500, once the menu is live), then start. Red=vr1 down, start selects.
+frames 3500
+1200-1209 test=1
+1500-1505 vr1=1
+1540-1545 vr1=1
+1580-1585 vr1=1
+1620-1625 vr1=1
+1660-1665 vr1=1
+1700-1705 vr1=1
+1740-1745 vr1=1
+1780-1785 vr1=1
+1880-1889 start=1
+2720-2729 start=1
