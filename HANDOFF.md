@@ -2,10 +2,10 @@
 
 ## Current state
 
-M0 tooling written; not yet run against MAME with the real game. The user's
-`daytona93.zip` is in this cloud container's git-ignored `roms/` (all 40 files
-CRC-checked against MAME); a Model-2-only MAME with the branch-harvest patch is
-building here (`scripts/build_mame.sh`).
+M0 tooling runs against real MAME with the real game (`daytona93`, user's ROM
+set, git-ignored `roms/` in this cloud container, never committed). Model-2-only
+MAME with the harvest patch builds here (`scripts/build_mame.sh`, ~50 min cold,
+15 s incremental); `scripts/run_trace.sh` runs it headless.
 Built and tested here: i960 decoder + `i960dis`, trace library + `tracediff`,
 and the MAME plugin `tools/mame-plugins/m2trace` (trace recorder, input
 recorder/replayer). The plugin is tested only against a mock of MAME's Lua API.
@@ -45,22 +45,12 @@ Running the plugin (user's machine, with their ROM set):
 
 M0 tooling (design doc, Milestones):
 
-1. First real run of `m2trace` on the user's machine (MAME + `daytona`):
-   600 frames of attract. Check, in this order: the plugin loads; taps fire;
-   vblank-ack samples once per frame (epochs ~= frames); two runs of the same
-   command give identical traces (MAME determinism — nothing else is
-   meaningful until this holds); record then replay a short input session and
-   get "replay matched". Record the numbers here.
-   From the same trace: the PRCB/ICR (IRQ priority order) and whether
-   `geo_prg_w` (0x00804000) is ever written.
-2. Run `i960dis` over the real program image (user's machine) and grep for
-   `!quirk` and `!noexec` in reachable code; record counts, not bytes.
-3. Indirect-branch harvest: patch written (`patches/mame/`), run with
-   `M2TRACE_BRANCHES=path` once MAME is built; feed targets to `--seed` and
-   measure how much of the program becomes reachable.
-4. Ghidra SLEIGH cross-check: blocked. Mainline Ghidra has no i960 module;
+1. Input replay in real MAME: scripted coin/start/accelerate stream, check
+   "replay matched", and harvest branches from gameplay (attract exercised 18
+   of 31 statically-found indirect sites).
+2. Ghidra SLEIGH cross-check: blocked. Mainline Ghidra has no i960 module;
    needs the user to choose a third-party one (Open decisions).
-5. Decide the FP oracle question (Open decisions) before the unit-test tier
+3. Decide the FP oracle question (Open decisions) before the unit-test tier
    is written, since it sets what "matches MAME" means for FP opcodes.
 
 ## Open decisions
@@ -87,7 +77,7 @@ Confirmed from MAME `model2.cpp` (all MAME figures, not PCB measurements):
 | Sound | 68000 + 2x SCSP, ~11 MHz | **Model 1 sound board**: 68000 @ 10 MHz + YM3438 + 2x MultiPCM |
 | Main to sound | command latch | i8251 UART at 31.25 kbit/s; IRQ3 handler is the transmit loop |
 | I/O | direct ADCs | Model 1 I/O board, own Z80 @ 4 MHz, via MB8421 dual-port RAM |
-| IRQ order | unknown | bit 0 vblank -> IRQ0, bits 2-5 timers -> IRQ2, bit 10 UART -> IRQ3; priority set by the game's ICR (`vector / 8`) |
+| IRQ order | unknown | bit 0 vblank -> IRQ0, bits 2-5 timers -> IRQ2, bit 10 UART -> IRQ3; ICR 0f0e0d0c (measured): all priority 1 |
 
 i960 decoder (MAME `i960.cpp` / `i960dis.cpp` at `dddd7368`):
 
@@ -123,6 +113,34 @@ Trace tooling:
   either side of the 1 KiB unpack block.
 - Hashing reads 1.4 MiB per sample in Lua; cost unmeasured until a real run.
   If it is too slow, hash fewer regions per sample, not a weaker hash.
+
+First real MAME runs (`daytona93`, MAME `dddd7368` + harvest patch, 600
+frames of attract, headless, empty NVRAM each run):
+
+- Plugin loads and every tap fires: 3,567,333 events in 600 frames. 68 s per
+  run with tracing on this container (MAME reports 14.9% speed).
+- Found and fixed: `screen.frame_number` is a method at this MAME, not the
+  property the Lua reference documents; and MAME silently drops errors raised
+  in tap callbacks, so the first run had 0 samples and no message. Samples are
+  now pcall-wrapped and failures reported.
+- **MAME is deterministic for Daytona**: two independent runs gave
+  byte-identical traces (60,942,182 bytes, 1,154 epochs, 3,567,333 events)
+  and identical branch harvests.
+- vblank-ack sampling works, but the handler writes the ack (`fffffffe`) twice
+  back to back: steady state is exactly 2 samples per frame, the second epoch
+  holding only the second ack. Deterministic, so lockstep is fine; every other
+  sample is redundant (cost, not correctness).
+- ICR = `0f0e0d0c`, set once (synmov at 0x00000a40): IRQ0-3 -> vectors
+  0x0c-0x0f, **all priority 1**. Taken in attract: vector 0x0c (vblank) 576x,
+  handler 0x0e00; vector 0x0f (sound UART) 51x, handler 0x0f50. Timers
+  (IRQ2) never fire; final enable mask = vblank only.
+- Geometrizer program port (0x00804000) **is** written: 411,757 writes, from
+  epoch 89. TGP FIFO: 773,279 writes, 697,078 reads.
+- Harvest: 16 `bx` sites / 49 targets, 2 `callx` sites / 56 targets; no
+  `balx`, no `calls`.
+- Static reach with the 107 harvested targets as seeds: 89 -> 13,081
+  instructions, 0 stops on non-executable opcodes, **0 quirk encodings in
+  reachable code**, 31 indirect sites (18 exercised by attract).
 
 Real program image (`daytona93`, epr-16530a/16531a, counts only):
 

@@ -96,7 +96,17 @@ local function dump_regions()
 	end
 end
 
-local function take_sample()
+local sample_errors = 0
+
+-- The Lua reference documents screen.frame_number as a property; at MAME
+-- dddd7368 it is a method. Accept either.
+local function frame_number()
+	local f = screen.frame_number
+	if type(f) == "function" then return f(screen) end
+	return f
+end
+
+local function take_sample_unprotected()
 	local regions = {}
 	for i, r in ipairs(REGIONS) do
 		-- read_range at width 32 returns host-order words; hashing unpacks
@@ -106,8 +116,20 @@ local function take_sample()
 		regions[i] = { r[1], r[2] - r[1] + 1, core.hash_words(bytes) }
 	end
 	if cfg.dump_epoch == epoch then dump_regions() end
-	out:write(core.rec_sample(epoch, screen.frame_number, regions, reg_values()))
+	out:write(core.rec_sample(epoch, frame_number(), regions, reg_values()))
 	epoch = epoch + 1
+end
+
+-- MAME drops errors raised inside tap callbacks silently, so a failing sample
+-- would just vanish. Report it (first few, then a count at exit).
+local function take_sample()
+	local ok, err = pcall(take_sample_unprotected)
+	if not ok then
+		sample_errors = sample_errors + 1
+		if sample_errors <= 3 then
+			emu.print_error("m2trace: sample failed at epoch " .. epoch .. ": " .. tostring(err))
+		end
+	end
 end
 
 local function install_taps()
@@ -252,6 +274,9 @@ local function on_frame()
 end
 
 local function on_stop()
+	if sample_errors > 0 then
+		emu.print_error(string.format("m2trace: %d samples FAILED; the trace is incomplete", sample_errors))
+	end
 	if replay_frames then
 		if replay_mismatch then
 			emu.print_error(string.format("m2trace: replay INVALID from frame %d", replay_mismatch - 1))

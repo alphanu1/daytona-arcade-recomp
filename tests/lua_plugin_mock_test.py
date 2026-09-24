@@ -96,7 +96,7 @@ M.ports = {
 
 manager = { machine = {
   devices = { [":maincpu"] = { state = state, spaces = { program = space } } },
-  screens = { [":screen"] = { frame_number = 0 } },
+  screens = { [":screen"] = { frame = 0, frame_number = function(self) return self.frame end } },  -- a method, as in real MAME
   ioport = { ports = M.ports },
   exit = function() M.exited = true end,
 } }
@@ -112,7 +112,7 @@ function M.reset() for _, cb in ipairs(M.notifiers.reset) do cb() end end
 function M.end_frame()
   for _, cb in ipairs(M.notifiers.frame) do cb() end
   M.frame = M.frame + 1
-  manager.machine.screens[":screen"].frame_number = M.frame
+  manager.machine.screens[":screen"].frame = M.frame
 end
 function M.stop() for _, cb in ipairs(M.notifiers.stop) do cb() end end
 return M
