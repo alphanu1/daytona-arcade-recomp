@@ -69,7 +69,9 @@ Insn decode(uint32_t addr, uint32_t w, uint32_t w1) {
             in.target = addr + uint32_t(sext(w, 13));
             in.has_target = true;
             if (w & 3) in.quirks |= kQuirkLowDispBits;
+            if (w & 1) in.quirks |= kQuirkSfr;
         }
+        if (in.op && in.op->pat == 1 && (w & 0x7ffff)) in.quirks |= kQuirkTestFields;
         break;
 
     case Format::Mem:
@@ -102,6 +104,26 @@ Insn decode(uint32_t addr, uint32_t w, uint32_t w1) {
         in.s2 = (w >> 6) & 1;
         in.s1 = (w >> 5) & 1;
         in.src1 = w & 0x1f;
+        if (in.s1 || in.s2) in.quirks |= kQuirkSfr;
+        if (const OpInfo *op = lookup_reg(uint16_t(((w >> 20) & 0xff0) | ((w >> 7) & 0xf)))) {
+            // Operand types as MAME's executor reads them (get_1_ri vs
+            // get_1_rif, set_ri vs set_rif), which the disassembler's
+            // pattern table does not always reflect.
+            const uint16_t c = op->code;
+            const bool int_src1 = c == 0x674 || c == 0x675 || c == 0x676 || c == 0x677; // cvtir cvtilr scalerl scaler
+            const bool int_dst = c >= 0x6c0 && c <= 0x6c3;                              // cvtri cvtril cvtzri cvtzril
+            const bool writes_dst = c == 0x645 || op->pat == 33;                        // modac; src/dst forms
+            const int pat = op->pat;
+            const bool fp = pat == 10 || pat == 20 || pat == -20 || pat == -30;
+            auto fp_lit_ok = [](unsigned r) { return r < 4 || r == 16 || r == 22; };
+            if (fp) {
+                if (in.m1 && !int_src1 && !fp_lit_ok(in.src1)) in.quirks |= kQuirkFpLiteral;
+                if ((pat == 20 || pat == -30) && in.m2 && !fp_lit_ok(in.src2)) in.quirks |= kQuirkFpLiteral;
+                if ((pat == -20 || pat == -30) && in.m3 && (int_dst || in.dst >= 4)) in.quirks |= kQuirkLiteralDst;
+            } else if ((pat == -1 || pat == -2 || pat == -3 || writes_dst) && in.m3) {
+                in.quirks |= kQuirkLiteralDst;
+            }
+        }
         break;
     }
 

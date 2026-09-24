@@ -18,6 +18,11 @@
 //                  interrupt table, system procedure table) plus any --seed;
 //                  prints only reachable instructions, summary on stderr
 //   --seed ADDR    extra entry point for --follow (repeatable)
+//   --words FILE   decode "addr word0 word1" hex lines from FILE (no image);
+//                  prints "addr length exec target canon mnemonic text", tab-separated,
+//                  target "-" when none; canon 0 when the word sets bits the
+//                  i960KB reserves (any quirk flag) (for cross-checking
+//                  other decoders)
 //
 // Lines are "addr: word [word2]  text" in MAME's syntax. A trailing marker
 // flags what the recompiler must not take at face value:
@@ -67,6 +72,24 @@ int main(int argc, char **argv) {
 
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
+        if (a == "--words" && i + 1 < argc) {
+            FILE *wf = std::fopen(argv[++i], "r");
+            if (!wf) {
+                std::fprintf(stderr, "i960dis: cannot open %s\n", argv[i]);
+                return 2;
+            }
+            unsigned wa, w0, w1;
+            while (std::fscanf(wf, "%x %x %x", &wa, &w0, &w1) == 3) {
+                const i960::Insn in = i960::decode(wa, w0, w1);
+                char tgt[16] = "-";
+                if (in.has_target) std::snprintf(tgt, sizeof tgt, "%08x", in.target);
+                const bool canon = in.quirks == 0;
+                std::printf("%08x\t%u\t%d\t%s\t%d\t%s\t%s\n", wa, in.valid() ? in.length : 0, in.executable() ? 1 : 0,
+                            tgt, canon ? 1 : 0, in.op ? in.op->mnem : "?", i960::format_mame(in).c_str());
+            }
+            std::fclose(wf);
+            return 0;
+        }
         auto next = [&]() -> const char * {
             if (i + 1 >= argc) usage();
             return argv[++i];
@@ -127,6 +150,10 @@ int main(int argc, char **argv) {
             if (in.quirks & i960::kQuirkLowDispBits) mark += "dispbits,";
             if (in.quirks & i960::kQuirkMembBits56) mark += "membbits56,";
             if (in.quirks & i960::kQuirkMembScale) mark += "membscale,";
+            if (in.quirks & i960::kQuirkSfr) mark += "sfr,";
+            if (in.quirks & i960::kQuirkLiteralDst) mark += "literaldst,";
+            if (in.quirks & i960::kQuirkFpLiteral) mark += "fpliteral,";
+            if (in.quirks & i960::kQuirkTestFields) mark += "testfields,";
             mark.pop_back();
         }
         if (in.length == 8)
@@ -140,21 +167,19 @@ int main(int argc, char **argv) {
         std::vector<uint32_t> seeds = bs.all();
         seeds.insert(seeds.end(), extra_seeds.begin(), extra_seeds.end());
         const i960::ReachResult r = i960::reach(seeds, read);
-        unsigned quirk_disp = 0, quirk_b56 = 0, quirk_scale = 0;
+        unsigned quirk_any = 0;
         for (const auto &[addr, in] : r.insns) {
             print(in);
-            quirk_disp += (in.quirks & i960::kQuirkLowDispBits) != 0;
-            quirk_b56 += (in.quirks & i960::kQuirkMembBits56) != 0;
-            quirk_scale += (in.quirks & i960::kQuirkMembScale) != 0;
+            quirk_any += in.quirks != 0;
         }
         std::fprintf(stderr,
                      "seeds: reset ip %08x, %zu interrupt handlers, %zu system procedures, %zu extra\n"
                      "reachable: %zu instructions; indirect sites %zu; paths stopped on invalid/noexec %zu; "
                      "unmapped targets %zu\n"
-                     "quirks in reachable code: dispbits %u, membbits56 %u, membscale %u\n",
+                     "instructions with any quirk in reachable code: %u\n",
                      bs.reset_ip, bs.interrupt_handlers.size(), bs.system_procedures.size(), extra_seeds.size(),
                      r.insns.size(), r.indirect_sites.size(), r.stops.size(), r.unmapped_targets.size(),
-                     quirk_disp, quirk_b56, quirk_scale);
+                     quirk_any);
         for (uint32_t a : r.stops) std::fprintf(stderr, "  stop @%08x\n", a);
         for (uint32_t a : r.unmapped_targets) std::fprintf(stderr, "  unmapped target %08x\n", a);
         return 0;

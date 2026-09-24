@@ -34,6 +34,8 @@ Running the plugin (user's machine, with their ROM set):
   `tools/i960dis` (linear sweep; `--interleave` joins the ROM_LOAD32_WORD pair),
   `tests/test_decode` (66 hand-encoded checks), `tests/mame_oracle`
   (differential against MAME's own `i960dis.cpp`, compiled unmodified).
+- Ghidra SLEIGH cross-check (`tests/ghidra_oracle.py`, third-party module
+  mumbel/ghidra_i960 via pypcode, `scripts/fetch_ghidra_i960.sh`).
 - `src/i960/reach` (recursive descent + boot-record seeds), `i960dis --follow`,
   `tests/test_reach` (19 checks).
 - M0 trace format, `tracediff`, MAME plugin and input recorder
@@ -53,17 +55,13 @@ M0 tooling (design doc, Milestones):
    only, no game data), then replaying it here.
 2. M0 exit review against the design doc, then M1 (boot) per the milestone
    order.
-3. Ghidra SLEIGH cross-check: blocked. Mainline Ghidra has no i960 module;
-   needs the user to choose a third-party one (Open decisions).
-4. Decide the FP oracle question (Open decisions) before the unit-test tier
+3. Decide the FP oracle question (Open decisions) before the unit-test tier
    is written, since it sets what "matches MAME" means for FP opcodes.
 
 ## Open decisions
 
 - Project licence. The Model 2 MiSTer core is GPL-3; lifting from it decides
   this.
-- Ghidra i960 module: mainline has none. Which third-party module, and its
-  licence, is the user's call.
 - FP oracle. MAME's i960 FP is host `double`, not 80-bit. Reachable code uses
   only cvtri/cmpr/cvtir/scaler/cvtzri, so the proposal is: implement those in
   extF80 (rules.md), sweep them against MAME's `double` versions, and treat
@@ -198,8 +196,28 @@ Real program image (`daytona93`, epr-16530a/16531a, counts only):
   is in RAM), 4 system procedures; 89 reachable instructions, 1 indirect site,
   0 quirks. The reset path ends in `b .` idle loops. Static analysis cannot
   get past boot without harvested targets.
-- Mainline Ghidra (commit `8e9a8e7a`) has no i960 processor module; nor does
-  pypcode. The design doc assumed one.
+- Mainline Ghidra has never shipped an i960 module (checked HEAD `8e9a8e7a`,
+  the last 40 release tags, and full history). The user pointed to the
+  third-party mumbel/ghidra_i960 (Apache-2.0), now used.
+
+Ghidra SLEIGH cross-check (mumbel/ghidra_i960 `727ef787` via pypcode 3.3.3):
+
+- All 23,258 reachable Daytona instructions: 0 differences (validity,
+  mnemonic, length, target, operands).
+- 1,000,000 random words, 1.5 s per 100k: after normalising syntax (MAME omits
+  a x1 index scale, prints negative displacements unsigned, prints mode-5 as an
+  absolute address; Ghidra prints `disp (ip)`), 72 differences in 5 groups,
+  all known: MAME's disassembler names the integer src1 of cvtir/cvtilr/
+  scaler/scalerl as an FP register (executor `get_1_ri` and SLEIGH read an
+  integer); and SLEIGH decodes `movre` only at 0x6e1, MAME also at 0x6e9.
+- The cross-check found four more encoding classes MAME treats specially;
+  now decoder quirks: `sfr` (s1/s2, COBR bit 0: Cx special-function
+  registers, ignored by MAME), `literaldst` (literal destination: MAME
+  fatalerror, so no longer executable), `fpliteral` (FP literal other than
+  fp0-3/+0.0/+1.0: MAME reads 0.0), `testfields` (test* with non-zero unused
+  fields). 0 of any quirk in reachable code.
+- Mutation check: making MEMB mode 7 read a displacement gives 2,871
+  differences, exit 1.
 
 Also found:
 

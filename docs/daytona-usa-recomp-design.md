@@ -110,7 +110,9 @@ The recompiler turns the program ROM into one C++ function per i960 procedure, p
 
 **Ghidra as the analysis workbench**
 
-> **Correction (checked 24 Sep 2026):** mainline Ghidra has no i960 processor module. At commit `8e9a8e7a` its `Ghidra/Processors` holds 39 modules and none is i960, and pypcode (Ghidra's SLEIGH packaged for Python) has none either. The plan below assumed one existed. Using Ghidra, and the SLEIGH cross-check, needs a third-party i960 module: which one, and its licence, is an open decision. Until then the decoder's only reference is MAME.
+> **Correction (checked 24 Sep 2026):** mainline Ghidra has never shipped an i960 processor module: none in `Ghidra/Processors` at `8e9a8e7a`, none in the last 40 release tags back to 9.2, and no i960 path anywhere in its history. The module in use is the third-party [mumbel/ghidra_i960](https://github.com/mumbel/ghidra_i960) (Apache-2.0, pinned at `727ef787`, fetched by `scripts/fetch_ghidra_i960.sh`), which loads into Ghidra from `Ghidra/Processors/` and into pypcode for the decoder cross-check.
+>
+> **Cross-check result** (`tests/ghidra_oracle.py`): all 23,258 statically reachable Daytona instructions decode identically in our decoder and in SLEIGH (validity, mnemonic, length, target, operands). On 1,000,000 random words the only differences left are (a) MAME's disassembler printing the integer src1 of `cvtir`/`cvtilr`/`scaler`/`scalerl` as an FP register (MAME's executor and SLEIGH both read an integer; text only), and (b) `movre`: MAME executes 0x6e9 and the undocumented 0x6e1, the module decodes only 0x6e1. Encodings that set bits the KB reserves are flagged as decoder quirks and counted, not compared; none occurs in reachable code.
 
 - Load the de-interleaved program image into Ghidra with its i960 processor module. It becomes the shared, annotated map of the game code.
 - Use it to name functions, mark jump tables, label MMIO accesses (TGP FIFO, sound UART, I/O dual-port RAM, comm RAM) and document data structures such as car state and course tables.

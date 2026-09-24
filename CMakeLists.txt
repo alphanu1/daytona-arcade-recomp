@@ -56,6 +56,14 @@ if(Python3_FOUND)
         COMMAND Python3::Interpreter ${CMAKE_SOURCE_DIR}/tests/lua_plugin_mock_test.py
                 ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/lua_plugin_mock)
     set_tests_properties(lua_plugin_mock PROPERTIES SKIP_RETURN_CODE 77)
+    # Second decode reference: Ghidra SLEIGH (third-party i960 module via
+    # pypcode). Needs scripts/fetch_ghidra_i960.sh and pip install pypcode.
+    if(EXISTS ${CMAKE_SOURCE_DIR}/extern/ghidra_i960/data/languages/i960.slaspec)
+        add_test(NAME ghidra_oracle
+            COMMAND Python3::Interpreter ${CMAKE_SOURCE_DIR}/tests/ghidra_oracle.py
+                    ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/extern/ghidra_i960 --random 200000)
+        set_tests_properties(ghidra_oracle PROPERTIES SKIP_RETURN_CODE 77)
+    endif()
 endif()
 
 # Differential test against MAME's disassembler. Needs scripts/fetch_mame.sh.
