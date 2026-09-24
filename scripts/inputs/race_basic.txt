@@ -1,12 +1,15 @@
 # Coin up, start, confirm every select screen, hold the accelerator.
 # Frame numbers are at 57.52 Hz: 575 frames = 10 s. Attract is running by 1200.
+# Default settings take 3 coins per credit (screen shows CREDIT n/3).
 frames 6000
 1200-1209 coin=1
-1300-1309 start=1
+1240-1249 coin=1
+1280-1289 coin=1
+1400-1409 start=1
 # course select, then transmission select: keep confirming
-1500-1509 start=1
-1700-1709 vr1=1
-1900-1909 start=1
-2100-2109 vr1=1
-2300-2309 start=1
-1300-5999 accel=0xe0
+1600-1609 start=1
+1800-1809 vr1=1
+2000-2009 start=1
+2200-2209 vr1=1
+2400-2409 start=1
+1400-5999 accel=0xe0
