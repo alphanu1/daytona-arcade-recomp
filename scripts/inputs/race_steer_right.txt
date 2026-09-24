@@ -1,0 +1,19 @@
+# Steer right through every select screen (manual gearbox, harder course),
+# then race with gear shifts 1-2-3-4. 3 coins per credit.
+frames 6000
+1200-1209 coin=1
+1240-1249 coin=1
+1280-1289 coin=1
+1400-1409 start=1
+1450-2350 steer=0xe0
+1600-1609 start=1
+1800-1809 vr1=1
+2000-2009 start=1
+2200-2209 vr1=1
+2400-2409 start=1
+2410-5999 steer=0x90
+1400-5999 accel=0xe0
+2600-3199 gear1=1
+3200-3799 gear2=1
+3800-4399 gear3=1
+4400-5999 gear4=1

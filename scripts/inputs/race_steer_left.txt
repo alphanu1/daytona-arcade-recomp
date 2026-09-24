@@ -1,0 +1,17 @@
+# Steer left then right on the selects to walk the options; brake bursts in race.
+frames 6000
+1200-1209 coin=1
+1240-1249 coin=1
+1280-1289 coin=1
+1400-1409 start=1
+1450-1649 steer=0x20
+1650-1899 steer=0xe0
+1900-2149 steer=0x20
+1700-1709 start=1
+2000-2009 start=1
+2300-2309 start=1
+2500-2509 start=1
+1400-5999 accel=0xe0
+3000-3100 brake=0xe0
+4000-4100 brake=0xe0
+3500-3700 steer=0x40

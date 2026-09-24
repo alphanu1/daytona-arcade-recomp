@@ -1,0 +1,10 @@
+# Car select: start + accelerator gives time attack (on-screen hint).
+frames 6000
+1200-1209 coin=1
+1240-1249 coin=1
+1280-1289 coin=1
+1400-1409 start=1
+1400-5999 accel=0xe0
+1600-1700 start=1
+1800-1900 start=1
+2000-2100 start=1

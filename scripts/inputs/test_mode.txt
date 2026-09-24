@@ -1,0 +1,14 @@
+# Enter test mode and step through menu items with service, select with test.
+frames 4000
+1200-1209 test=1
+1500-1509 service=1
+1600-1609 service=1
+1700-1709 test=1
+2000-2009 test=1
+2200-2209 service=1
+2300-2309 test=1
+2600-2609 test=1
+2800-2809 service=1
+2900-2909 service=1
+3000-3009 test=1
+3300-3309 test=1
