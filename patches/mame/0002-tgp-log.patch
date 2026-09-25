@@ -1,0 +1,130 @@
+diff --git a/src/devices/cpu/mb86233/mb86233.cpp b/src/devices/cpu/mb86233/mb86233.cpp
+index 2e483756a3..26fb932ace 100644
+--- a/src/devices/cpu/mb86233/mb86233.cpp
++++ b/src/devices/cpu/mb86233/mb86233.cpp
+@@ -1221,6 +1221,22 @@ void mb86233_device::execute_run()
+ 		}
+ 
+ 	rep_start:
++		// daytona-arcade-recomp: $M2TRACE_TGPPC logs each completed
++		// instruction (up to $M2TRACE_TGPPC_MAX, default 2M): ppc a b d p st.
++		{
++			static FILE *pcl = nullptr;
++			static bool tried = false;
++			static unsigned long long n = 0, nmax = 2000000;
++			if (!tried) {
++				tried = true;
++				if (const char *p = getenv("M2TRACE_TGPPC")) pcl = fopen(p, "w");
++				if (const char *m = getenv("M2TRACE_TGPPC_MAX")) nmax = strtoull(m, nullptr, 0);
++			}
++			if (pcl && n < nmax) {
++				n++;
++				fprintf(pcl, "%x %x %x %x %x %x\n", m_ppc, m_a, m_b, m_d, m_p, m_st);
++			}
++		}
+ 		if(0) {
+ 		do_stall:
+ 			m_pc = m_ppc;
+diff --git a/src/mame/sega/model2.cpp b/src/mame/sega/model2.cpp
+index f7dc50647a..21cce66c70 100644
+--- a/src/mame/sega/model2.cpp
++++ b/src/mame/sega/model2.cpp
+@@ -96,6 +96,26 @@
+ #include "model1io2.lh"
+ #include "segabill.lh"
+ 
++// daytona-arcade-recomp: TGP-side log for the static recompiler's oracle.
++// $M2TRACE_TGPLOG gets one line per TGP-visible event, in order:
++//   up N w0 w1 ...  program uploaded (N words, hex), TGP boots
++//   in V            TGP popped V from the input FIFO
++//   out V           TGP pushed V to the output FIFO
++//   bank V          TGP wrote its bank register
++//   mr A V          TGP read banked external memory (A = io offset)
++//   mw A V M        TGP wrote banked external memory (M = mem_mask)
++static FILE *m2_tgp_log()
++{
++	static FILE *f = nullptr;
++	static bool tried = false;
++	if (!tried) {
++		tried = true;
++		if (const char *p = getenv("M2TRACE_TGPLOG"))
++			f = fopen(p, "w");
++	}
++	return f;
++}
++
+ /* Timers - these count down at 25 MHz and pull IRQ2 when they hit 0 */
+ u32 model2_state::timers_r(offs_t offset)
+ {
+@@ -474,31 +494,42 @@ void model2_tgp_state::copro_tgp_io_map(address_map &map)
+ void model2_tgp_state::copro_tgp_rf_map(address_map &map)
+ {
+ 	map(0x0, 0x0).nopw(); // leds? busy flag?
+-	map(0x1, 0x1).r(m_copro_fifo_in, FUNC(generic_fifo_u32_device::read));
+-	map(0x2, 0x2).w(m_copro_fifo_out, FUNC(generic_fifo_u32_device::write));
++	map(0x1, 0x1).lr32(NAME([this]() -> u32 {
++		const bool empty = m_copro_fifo_in->is_empty();
++		const u32 v = m_copro_fifo_in->read();
++		if (!empty)
++			if (FILE *f = m2_tgp_log()) fprintf(f, "in %x\n", v);
++		return v;
++	}));
++	map(0x2, 0x2).lw32(NAME([this](u32 data) {
++		if (FILE *f = m2_tgp_log()) fprintf(f, "out %x\n", data);
++		m_copro_fifo_out->write(data);
++	}));
+ 	map(0x3, 0x3).w(FUNC(model2_tgp_state::copro_tgp_bank_w));
+ }
+ 
+ u32 model2_tgp_state::copro_tgp_memory_r(offs_t offset)
+ {
+ 	offs_t adr = (m_copro_tgp_bank_reg & 0xff0000) | offset;
++	u32 v = 0;
+ 
+ 	if(adr & 0x800000) {
+ 		adr &= (m_copro_data->bytes() >> 2) - 1;
+-		return m_copro_data->as_u32(adr);
+-	}
+-
+-	if(adr & 0x400000) {
++		v = m_copro_data->as_u32(adr);
++	} else if(adr & 0x400000) {
+ 		adr &= 0x7fff;
+-		return m_bufferram[adr];
++		v = m_bufferram[adr];
+ 	}
+ 
+-	return 0;
++	if (!machine().side_effects_disabled())
++		if (FILE *f = m2_tgp_log()) fprintf(f, "mr %x %x\n", offset, v);
++	return v;
+ }
+ 
+ void model2_tgp_state::copro_tgp_memory_w(offs_t offset, u32 data, u32 mem_mask)
+ {
+ 	offs_t adr = (m_copro_tgp_bank_reg & 0xff0000) | offset;
++	if (FILE *f = m2_tgp_log()) fprintf(f, "mw %x %x %x\n", offset, data, mem_mask);
+ 	if(adr & 0x400000) {
+ 		adr &= 0x7fff;
+ 		COMBINE_DATA(&m_bufferram[adr]);
+@@ -508,6 +539,7 @@ void model2_tgp_state::copro_tgp_memory_w(offs_t offset, u32 data, u32 mem_mask)
+ void model2_tgp_state::copro_tgp_bank_w(offs_t offset, u32 data, u32 mem_mask)
+ {
+ 	COMBINE_DATA(&m_copro_tgp_bank_reg);
++	if (FILE *f = m2_tgp_log()) fprintf(f, "bank %x\n", m_copro_tgp_bank_reg);
+ 	if(m_copro_tgp_bank_reg & 0xc00000)
+ 		m_copro_tgp_bank.select(0);
+ 	else
+@@ -612,6 +644,12 @@ void model2_tgp_state::copro_halt()
+ 
+ void model2_tgp_state::copro_boot()
+ {
++	if (FILE *f = m2_tgp_log()) {
++		fprintf(f, "up %u", m_coprocnt);
++		for (u32 i = 0; i < m_coprocnt; i++)
++			fprintf(f, " %x", m_copro_tgp_program[i]);
++		fprintf(f, "\n");
++	}
+ 	m_copro_tgp->set_input_line(INPUT_LINE_HALT, CLEAR_LINE);
+ 	m_copro_tgp->pulse_input_line(INPUT_LINE_RESET, attotime::zero);
+ }

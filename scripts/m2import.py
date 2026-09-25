@@ -4,8 +4,11 @@
   m2import.py ROMS.zip OUTDIR
 
 Writes OUTDIR/program.bin (the i960 program region, 0x200000 bytes, mapped at
-0x00000000) and OUTDIR/main_data.bin (0x2000000 bytes, mapped at 0x02000000;
-its upper half also at 0x06000000), laid out as MAME's ROM_START(daytona93)
+0x00000000), OUTDIR/main_data.bin (0x2000000 bytes, mapped at 0x02000000;
+its upper half also at 0x06000000), OUTDIR/copro_data.bin (0x800000, the
+TGP's banked data ROM), OUTDIR/copro_tables.bin (0x40000, the CPU board's
+TGP function tables) and OUTDIR/tgp_program.bin (the TGP program the i960
+uploads at boot, cut from main_data), laid out as MAME's ROM_START(daytona93)
 loads them: ROM_LOAD32_WORD pairs interleave 16-bit words, then ROM_COPY
 mirrors. Every file is checked against the CRC32 in that ROM_START; anything
 else is refused.
@@ -30,9 +33,17 @@ LOADS = [
     ("mpr-16527.9", 0xFC4CB0EF, "main_data", 0x400002, 0x200000),
     ("epr-16534a.6", 0x1BB0D72D, "main_data", 0x800000, 0x100000),
     ("epr-16535a.7", 0x459A8BFB, "main_data", 0x800002, 0x100000),
+    ("mpr-16537.ic28", 0x36B7C35A, "copro_data", 0x000000, 0x200000),
+    ("mpr-16536.ic29", 0x6D6AFED9, "copro_data", 0x000002, 0x200000),
+    # MODEL2_CPU_BOARD: copro_tgp_tables
+    ("opr-14742a.45", 0x90C6B117, "copro_tables", 0x000000, 0x020000),
+    ("opr-14743a.46", 0xAE7F446B, "copro_tables", 0x000002, 0x020000),
 ]
 COPIES = [("main_data", 0x900000, dst, 0x100000) for dst in (0xA00000, 0xB00000, 0xC00000, 0xD00000, 0xE00000, 0xF00000)]
-SIZES = {"program": 0x200000, "main_data": 0x2000000}
+SIZES = {"program": 0x200000, "main_data": 0x2000000, "copro_data": 0x800000, "copro_tables": 0x40000}
+# The TGP program: the i960 copies these words from main_data into the TGP's
+# program RAM at boot (found by matching MAME's upload; checked by CRC here).
+TGP_PROGRAM = ("main_data", 0x860020, 2024 * 4, 0xD6D611DD)
 
 
 def main():
@@ -51,11 +62,15 @@ def main():
     for region, src, dst, size in COPIES:
         r = regions[region]
         r[dst:dst + size] = r[src:src + size]
+    region, off, size, crc = TGP_PROGRAM
+    tgp = bytes(regions[region][off:off + size])
+    if zlib.crc32(tgp) & 0xFFFFFFFF != crc:
+        sys.exit("m2import: TGP program not where expected; refusing")
     os.makedirs(out, exist_ok=True)
-    for name, data in regions.items():
+    for name, data in list(regions.items()) + [("tgp_program", tgp)]:
         with open(os.path.join(out, name + ".bin"), "wb") as f:
             f.write(data)
-    print(f"m2import: wrote program.bin ({SIZES['program']:#x}) and main_data.bin ({SIZES['main_data']:#x}) to {out}")
+    print(f"m2import: wrote {', '.join(n + '.bin' for n in list(regions) + ['tgp_program'])} to {out}")
 
 
 if __name__ == "__main__":

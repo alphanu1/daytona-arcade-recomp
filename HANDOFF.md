@@ -2,6 +2,24 @@
 
 ## Current state
 
+**M2 started: the TGP program is statically recompiled and matches MAME.**
+The TGP runs a 2,024-word program the i960 uploads from the data ROM;
+`m2tgprecomp` turns it into native C++ (MAME's MB86233 semantics inlined per
+instruction from `src/runtime/tgp.h`; no interpreter, no hand-written HLE),
+and `m2tgpcheck` replays MAME's TGP-side log (patch 0002) through it:
+
+| scenario | TGP instructions | input words | output words | banked accesses |
+| --- | --- | --- | --- | --- |
+| attract, 600 frames | 12,390,181 | 1,293,703 | 398,072 | 7,789 |
+| race_steer_left | 230,600,970 | 21,489,825 | 6,727,552 | 3,233,496 |
+| time_attack | 97,745,484 | 8,089,105 | 3,291,602 | 2,025,772 |
+| test_tgp | 32,597,984 | 3,300,128 | 1,083,012 | 7,789 |
+
+All identical to MAME; in attract every register was also checked after
+every instruction (`M2TRACE_TGPPC`). A mutant (fml result off by one ulp when
+A = 1.0) diverges at TGP instruction 2,339. Native speed ~500 M TGP
+instructions/s (race: 0.48 s for 231 M).
+
 **M1 met with native code**: `m2recomp` statically recompiles 23,262
 instructions (seeds: boot record + `seeds/daytona93.txt`) to portable C++,
 and `m2native` runs them with no interpreter and no fallback. It matches
@@ -82,22 +100,24 @@ Running the plugin (user's machine, with their ROM set):
 
 ## Next, in order
 
-M0 tooling (design doc, Milestones):
-
-1. Harvest the 21 indirect sites no run has hit (47 of 68 so far). Two
+1. Couple the recompiled TGP to the native i960 (`m2native`): the i960's
+   FIFO writes feed it, its output replaces the trace's answers for
+   0x884000 reads (checked against them), and it runs only when the i960
+   needs it (clockless, returns when its input FIFO is empty). Measure the
+   two timing-dependent cases before picking a rule: FIFO-status polls
+   (0x980004) and the TGP's banked reads of buffer RAM that the i960 also
+   writes.
+2. M2's other half: the geometrizer (display list from buffer RAM at
+   vblank); dump display lists and diff them against MAME.
+3. Harvest the 21 indirect sites no run has hit (47 of 68 so far). Two
    scripted screens do not respond as expected (see Findings): circuit
    select ignores scripted steering, and test-mode red presses land one item
-   short (SOUND TEST instead of TGP TEST). Best settled by the user playing
-   once with M2TRACE_RECORD_INPUT on their PC and sharing the .m2in (inputs
-   only, no game data), then replaying it here.
-2. M0 exit review against the design doc, then M1 (boot) per the milestone
-   order.
-3. Shipped native build (M1 step 5): interrupts at safe points (backward
-   branches, calls, returns) instead of a check per instruction, RAM read
-   and written inline instead of through the virtual bus, reference core not
-   linked. Targets: x86-64 and ARM64 on Windows, Linux, macOS, Android and
-   Raspberry Pi; the generated C++ is portable, no host assembly.
-4. Races (UART interrupts mid-code, option (a)), then M2 (TGP HLE).
+   short. Best settled by the user playing once with M2TRACE_RECORD_INPUT on
+   their PC and sharing the .m2in (inputs only, no game data).
+4. Shipped native build: interrupts at safe points instead of a check per
+   instruction, RAM inline instead of through the virtual bus. Targets:
+   x86-64 and ARM64 on Windows, Linux, macOS, Android and Raspberry Pi; the
+   generated C++ is portable, no host assembly, no FP contraction.
 
 ## Open decisions
 

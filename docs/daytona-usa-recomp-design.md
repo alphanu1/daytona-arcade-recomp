@@ -156,11 +156,14 @@ If the game copies routines into RAM or patches code, the tracer will show execu
 
 The TGP is replaced by C++ that consumes the same FIFO command stream the i960 writes, and the rasterizer is replaced by a modern GPU backend fed from an intermediate display list. This split lets us diff geometry output against MAME numerically, independent of how pixels end up on screen.
 
-**TGP HLE**
+**TGP: statically recompiled**
 
 - The i960 uploads the TGP's program, then pushes commands and parameters into the copro FIFO and reads results back from the output FIFO.
+- The TGP has no fixed microcode: its whole program is the 2,024 words the i960 uploads from the game's data ROM (main_data 0x860020, CRC 0xd6d611dd). So the TGP gets the same treatment as the i960: `tools/m2tgprecomp` statically recompiles that program to native C++ (one label per word, MAME's MB86233 semantics inlined per instruction from `src/runtime/tgp.h`, direct gotos for constant branches, a switch for computed ones). No MB86233 interpreter or hand-written HLE; nothing is interpreted at run time. At boot the runtime checks that the uploaded words are the ones recompiled (hard error otherwise).
+- Clockless coupling: the TGP runs only when the i960 needs it (reading the output FIFO or its status) and returns when it stalls on an empty input FIFO. FIFO contents are order-deterministic, so no cycle model is needed for them. **Measured**: `m2tgpcheck` replays MAME's TGP-side log and matches all of attract: 12,390,181 TGP instructions, all native, every register checked after every instruction, 1,293,703 input words, 398,072 output words and 7,789 banked accesses identical to MAME; 0.02 s without the per-instruction check. Also identical through a 6,000-frame race (230.6 M TGP instructions, 3.2 M banked accesses), time attack (97.7 M) and the TGP self-test (32.6 M).
+- Open: the TGP's banked reads of buffer RAM and the i960's FIFO-status polls depend on how far the TGP has run relative to the i960; in MAME that is set by its cycle estimates. Measure how often it matters before choosing a rule.
 - Two units share the geometry work: the TGP (programmable, results can return to the i960) and the geometrizer, which walks the display list in buffer RAM at vblank and transforms, lights, clips and projects polygons for the rasterizer. Which of the two does what for Daytona is established from traces, not assumed.
-- MAME runs the TGP microcode at low level (MB86234 = MB86233 core), so we trace its output per command and match it bit-for-bit, including its fixed/float rounding. MAME's geometrizer is HLE in host `float`, so it is a weaker oracle for display-list output than the TGP is for FIFO results.
+- MAME runs the TGP microcode at low level (MB86234 = MB86233 core); it is the oracle the recompiled program is matched against bit for bit, including its float rounding (host IEEE single, no FP contraction). MAME's geometrizer is HLE in host `float`, so it is a weaker oracle for display-list output than the TGP is for FIFO results.
 - Any command that returns results to the i960 (e.g. collision or matrix readback) must return identical values, since game logic depends on them.
 
 **Display list**
@@ -311,7 +314,7 @@ The critical path is i960 parity, then TGP parity; rendering and polish can proc
 
 1. **M0 Tooling:** MAME trace plugin, input recorder, trace diff tool, i960 disassembler.
 2. **M1 Boot:** Recompiled code reaches attract mode with RAM hashes matching MAME; no graphics.
-3. **M2 Geometry:** TGP HLE matches MAME's FIFO output for attract mode; display lists dump correctly.
+3. **M2 Geometry:** the recompiled TGP program matches MAME's FIFO output for attract mode (met standalone; see TGP section); display lists dump correctly.
 4. **M3 Pixels:** GPU renderer draws attract mode and a race at native res; tilemaps and HUD work.
 5. **M4 Playable:** Sound, inputs, full-race replay parity on all three courses.
 6. **M5 Cabinet feel:** Force feedback, link play on LAN, PCB side-by-side validation.

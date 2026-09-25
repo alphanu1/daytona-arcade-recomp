@@ -8,8 +8,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 if(MSVC)
     add_compile_options(/W4 /fp:strict)
 else()
-    # No -ffast-math, ever (rules.md): exact rounding is the point.
-    add_compile_options(-Wall -Wextra -fno-fast-math)
+    # No -ffast-math, ever (rules.md): exact rounding is the point. No FP
+    # contraction either: a fused multiply-add (ARM64 always has one) rounds
+    # once where the TGP's code rounds twice.
+    add_compile_options(-Wall -Wextra -fno-fast-math -ffp-contract=off)
 endif()
 
 # Berkeley SoftFloat 3e (scripts/fetch_softfloat.sh): the extF80 reference
@@ -51,6 +53,7 @@ target_include_directories(trace PUBLIC src)
 # lockstep. No instruction interpreter.
 add_library(runtime STATIC
     src/runtime/cpu.cpp
+    src/runtime/tgp.cpp
     src/runtime/m2_replay_bus.cpp
     src/runtime/lockstep.cpp
 )
@@ -82,6 +85,21 @@ if(EXISTS ${GEN_DIR}/gen_table.cpp)
     target_link_libraries(m2native PRIVATE runtime)
     if(NOT MSVC)
         set_source_files_properties(${GEN_SOURCES} PROPERTIES COMPILE_OPTIONS "-Wno-unused-label")
+    endif()
+endif()
+
+# The TGP recompiler and, when it has been run, the lockstep check of its
+# output against MAME's TGP log.
+add_executable(m2tgprecomp tools/m2tgprecomp/main.cpp)
+target_include_directories(m2tgprecomp PRIVATE src)
+set(TGP_GEN ${CMAKE_BINARY_DIR}/gen/daytona93_tgp/tgp_gen.cpp)
+if(EXISTS ${TGP_GEN})
+    add_executable(m2tgpcheck tools/m2tgpcheck/main.cpp ${TGP_GEN})
+    target_link_libraries(m2tgpcheck PRIVATE runtime)
+    # The per-instruction hook exists only in this test build.
+    set_source_files_properties(${TGP_GEN} PROPERTIES COMPILE_DEFINITIONS M2TGP_WITH_HOOK)
+    if(NOT MSVC)
+        set_source_files_properties(${TGP_GEN} PROPERTIES COMPILE_OPTIONS "-Wno-unused-label")
     endif()
 endif()
 
