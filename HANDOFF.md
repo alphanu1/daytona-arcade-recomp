@@ -20,6 +20,26 @@ every instruction (`M2TRACE_TGPPC`). A mutant (fml result off by one ulp when
 A = 1.0) diverges at TGP instruction 2,339. Native speed ~500 M TGP
 instructions/s (race: 0.48 s for 231 M).
 
+**Native i960 + native TGP together** (`m2native` now models the geometry
+ports, TGP FIFOs and buffer RAM instead of replaying them; the TGP runs on
+demand, clockless, until its input FIFO is empty):
+
+| scenario | i960 instructions | TGP instructions | TGP output words | buffer RAM hash |
+| --- | --- | --- | --- | --- |
+| attract | 70,926,456 | 12,390,181 | 398,072 identical | identical at 1,153 of 1,153 samples |
+| race_steer_left | 643,000,979 | 230,600,970 | 6,727,552 identical | identical at 11,951 of 11,951 |
+| time_attack | 663,975,129 | 97,745,385 | 3,291,602 identical | identical at 11,951 of 11,951 |
+
+Buffer RAM (128 KB) is built natively from its three writers: the i960, the
+geometrizer command port (0x800000) and the TGP's banked writes. The only
+reads that differ from MAME (103 in attract, 64,956 of 5,451,850 in the race)
+are all the i960 polling the TGP's mailbox, the last three dwords of buffer
+RAM (0x91fff0-0x91fff8, TGP bank offsets 0x7ffc-0x7ffe): our TGP has already
+finished when the i960 looks; MAME's, paced by cycle estimates, has not. A
+timing artefact like the UART one, so lockstep uses MAME's value there and
+counts it. Finding on the way: races read and write the TGP FIFOs 16 bits at
+a time (MAME's 32-bit handlers see the whole dword, other lanes zero).
+
 **M1 met with native code**: `m2recomp` statically recompiles 23,262
 instructions (seeds: boot record + `seeds/daytona93.txt`) to portable C++,
 and `m2native` runs them with no interpreter and no fallback. It matches
@@ -100,13 +120,10 @@ Running the plugin (user's machine, with their ROM set):
 
 ## Next, in order
 
-1. Couple the recompiled TGP to the native i960 (`m2native`): the i960's
-   FIFO writes feed it, its output replaces the trace's answers for
-   0x884000 reads (checked against them), and it runs only when the i960
-   needs it (clockless, returns when its input FIFO is empty). Measure the
-   two timing-dependent cases before picking a rule: FIFO-status polls
-   (0x980004) and the TGP's banked reads of buffer RAM that the i960 also
-   writes.
+1. Mailbox rule for the shipped build: the TGP runs to its FIFO wait before
+   the i960 reads the mailbox (what `m2native` does now); confirm the game
+   only polls it (fewer poll iterations are the only effect), then state it
+   in the design doc.
 2. M2's other half: the geometrizer (display list from buffer RAM at
    vblank); dump display lists and diff them against MAME.
 3. Harvest the 21 indirect sites no run has hit (47 of 68 so far). Two

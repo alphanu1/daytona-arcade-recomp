@@ -11,7 +11,8 @@
 #
 # A scenario's input stream is built from the script with make_input.py; it
 # needs one recorded stream for the field layout (traces/hdr.m2in, recorded
-# once with M2TRACE_RECORD_INPUT). The trace is deleted after the check.
+# once with M2TRACE_RECORD_INPUT). The trace is deleted after the check
+# unless M2_CHECK_KEEP is set.
 set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 NAME="${1:-attract}"
@@ -30,5 +31,5 @@ STATUS=0
 [ -x build/m2native ] && { ./build/m2native build/rom_cache/daytona93 "$OUT/trace.m2tr" "$OUT.irq" || STATUS=1; }
 [ -n "${M2_CHECK_REPLAY:-}" ] || [ "$NAME" = attract ] && { ./build/m2replay build/rom_cache/daytona93 "$OUT/trace.m2tr" "$OUT.irq" || STATUS=1; }
 [ -x build/m2tgpcheck ] && { ./build/m2tgpcheck build/rom_cache/daytona93 "$OUT.tgp" || STATUS=1; }
-rm -f "$OUT/trace.m2tr" "$OUT.tgp"
+[ -n "${M2_CHECK_KEEP:-}" ] || rm -f "$OUT/trace.m2tr" "$OUT.tgp"
 exit $STATUS

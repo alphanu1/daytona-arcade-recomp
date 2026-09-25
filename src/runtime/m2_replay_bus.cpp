@@ -145,10 +145,17 @@ void M2ReplayBus::end_of_epoch_check() {
     // Region hashes from our memory, as the plugin computes them.
     for (size_t i = 0; i < s.regions.size() && i < std::size(kRegions); ++i) {
         const auto &r = kRegions[i];
-        // Buffer RAM is written by the geometrizer and the TGP as well as the
-        // i960; in M1 (devices replayed) only the i960's accesses to it are
-        // checked, event by event. Its hash is M2's to match.
-        if (r.base == 0x00900000) continue;
+        // Buffer RAM is written by the geometrizer port and the TGP as well
+        // as the i960. Replayed (M1), only the i960's accesses to it are
+        // checked, event by event. Modelled (M2), its hash is measured: the
+        // TGP's mailbox words depend on how far the TGP has run.
+        if (r.base == 0x00900000) {
+            if (const uint8_t *m = model_ ? model_->region(r.base) : nullptr) {
+                ++model_->region_samples;
+                if (trace::hash_bytes(m, r.bytes) != s.regions[i].hash) ++model_->region_mismatch;
+            }
+            continue;
+        }
         std::vector<uint8_t> bytes(r.bytes);
         for (uint32_t o = 0; o < r.bytes; o += 4) {
             const uint32_t a = r.base + o;
@@ -194,9 +201,20 @@ bool M2ReplayBus::all_events_consumed() {
 
 uint32_t M2ReplayBus::device_read(uint32_t addr, uint32_t mask) {
     const trace::Access &e = next_event(false, addr, mask);
+    uint32_t v = e.data;
+    if (model_ && model_->claims(addr)) {
+        uint32_t ours = 0;
+        const auto check = model_->read(addr, mask, ours);
+        if ((ours & mask) != (e.data & mask)) {
+            if (check == DeviceModel::Strict)
+                throw Divergence("read " + hex(addr) + ": ours " + hex(ours & mask) + ", MAME " + hex(e.data & mask) + "; " +
+                                 where());
+            model_->measured_mismatch(addr, ours & mask, e.data & mask);
+        }
+    }
     ++pos_;
     ++events_;
-    return e.data;
+    return v;
 }
 
 void M2ReplayBus::device_write(uint32_t addr, uint32_t data, uint32_t mask) {
@@ -206,6 +224,7 @@ void M2ReplayBus::device_write(uint32_t addr, uint32_t data, uint32_t mask) {
                          where());
     ++pos_;
     ++events_;
+    if (model_ && model_->claims(addr)) model_->write(addr, data, mask);
     end_of_epoch_check();
 }
 

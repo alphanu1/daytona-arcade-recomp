@@ -20,12 +20,30 @@ struct Divergence : std::runtime_error {
     using std::runtime_error::runtime_error;
 };
 
+// A device the runtime models natively instead of replaying (M2: the TGP and
+// buffer RAM). Its reads are either strict (must equal MAME's recorded value)
+// or measured (a mismatch is counted and MAME's value used, for behaviour that
+// depends on how far one chip has run relative to another).
+class DeviceModel {
+public:
+    virtual ~DeviceModel() = default;
+    virtual bool claims(uint32_t addr) const = 0;
+    enum Check { Strict, Measured };
+    virtual Check read(uint32_t addr, uint32_t mask, uint32_t &value) = 0;
+    virtual void write(uint32_t addr, uint32_t data, uint32_t mask) = 0; // after the trace check
+    virtual void measured_mismatch(uint32_t addr, uint32_t ours, uint32_t mame) = 0;
+    // A region the model holds (buffer RAM), for the sample hashes; nullptr if not.
+    virtual const uint8_t *region(uint32_t base) const { (void)base; return nullptr; }
+    uint64_t region_samples = 0, region_mismatch = 0; // measured, as above
+};
+
 class M2ReplayBus : public Bus {
 public:
     // program: 0x200000 bytes at 0x00000000; main_data: 0x2000000 at 0x02000000.
     M2ReplayBus(std::vector<uint8_t> program, std::vector<uint8_t> main_data, const std::string &trace_path);
 
     void attach(const Cpu *core) { core_ = core; }
+    void set_model(DeviceModel *m) { model_ = m; }
 
     uint32_t fetch(uint32_t addr) override;
     uint8_t read_byte(uint32_t addr) override;
@@ -75,6 +93,7 @@ private:
     uint64_t events_ = 0;  // events matched in total
     bool done_ = false;
     const Cpu *core_ = nullptr;
+    DeviceModel *model_ = nullptr;
 };
 
 } // namespace rt

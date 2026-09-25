@@ -54,6 +54,7 @@ target_include_directories(trace PUBLIC src)
 add_library(runtime STATIC
     src/runtime/cpu.cpp
     src/runtime/tgp.cpp
+    src/runtime/m2_tgp_board.cpp
     src/runtime/m2_replay_bus.cpp
     src/runtime/lockstep.cpp
 )
@@ -79,12 +80,13 @@ target_link_libraries(m2recomp PRIVATE i960)
 # Recompiled game code lives in build/gen/<set>/ (derived from the game: never
 # committed). scripts/recompile.sh generates it and re-runs CMake.
 set(GEN_DIR ${CMAKE_BINARY_DIR}/gen/daytona93)
-if(EXISTS ${GEN_DIR}/gen_table.cpp)
+set(TGP_GEN ${CMAKE_BINARY_DIR}/gen/daytona93_tgp/tgp_gen.cpp)
+if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN})
     file(GLOB GEN_SOURCES ${GEN_DIR}/*.cpp)
-    add_executable(m2native tools/m2native/main.cpp ${GEN_SOURCES})
+    add_executable(m2native tools/m2native/main.cpp ${GEN_SOURCES} ${TGP_GEN})
     target_link_libraries(m2native PRIVATE runtime)
     if(NOT MSVC)
-        set_source_files_properties(${GEN_SOURCES} PROPERTIES COMPILE_OPTIONS "-Wno-unused-label")
+        set_source_files_properties(${GEN_SOURCES} ${TGP_GEN} PROPERTIES COMPILE_OPTIONS "-Wno-unused-label")
     endif()
 endif()
 
@@ -92,12 +94,11 @@ endif()
 # output against MAME's TGP log.
 add_executable(m2tgprecomp tools/m2tgprecomp/main.cpp)
 target_include_directories(m2tgprecomp PRIVATE src)
-set(TGP_GEN ${CMAKE_BINARY_DIR}/gen/daytona93_tgp/tgp_gen.cpp)
 if(EXISTS ${TGP_GEN})
     add_executable(m2tgpcheck tools/m2tgpcheck/main.cpp ${TGP_GEN})
     target_link_libraries(m2tgpcheck PRIVATE runtime)
     # The per-instruction hook exists only in this test build.
-    set_source_files_properties(${TGP_GEN} PROPERTIES COMPILE_DEFINITIONS M2TGP_WITH_HOOK)
+    target_compile_definitions(m2tgpcheck PRIVATE M2TGP_WITH_HOOK)
     if(NOT MSVC)
         set_source_files_properties(${TGP_GEN} PROPERTIES COMPILE_OPTIONS "-Wno-unused-label")
     endif()
