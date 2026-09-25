@@ -46,21 +46,28 @@ target_link_libraries(i960 PUBLIC softfloat)
 add_library(trace STATIC src/trace/trace.cpp)
 target_include_directories(trace PUBLIC src)
 
-# i960 runtime: MAME's instruction semantics (transplanted, BSD-3) over our bus.
+# Runtime the recompiled game runs on: i960 context and services (call/ret,
+# interrupts, memory; MAME's semantics, transplanted, BSD-3), replay bus and
+# lockstep. No instruction interpreter.
 add_library(runtime STATIC
-    src/runtime/i960_core.cpp
+    src/runtime/cpu.cpp
     src/runtime/m2_replay_bus.cpp
     src/runtime/lockstep.cpp
 )
 target_include_directories(runtime PUBLIC src)
 target_link_libraries(runtime PUBLIC trace i960)
+
+# Reference interpreter (MAME's i960 executor, transplanted, BSD-3). Test
+# oracle only: m2replay links it; the game never does.
+add_library(refcore STATIC src/refcore/i960_ref.cpp)
+target_link_libraries(refcore PUBLIC runtime)
 if(NOT MSVC)
     # Upstream MAME code: keep its own warnings out of ours.
-    set_source_files_properties(src/runtime/i960_core.cpp PROPERTIES COMPILE_OPTIONS "-Wno-unused-parameter;-Wno-sign-compare")
+    set_source_files_properties(src/runtime/cpu.cpp src/refcore/i960_ref.cpp PROPERTIES COMPILE_OPTIONS "-Wno-unused-parameter;-Wno-sign-compare")
 endif()
 
 add_executable(m2replay tools/m2replay/main.cpp)
-target_link_libraries(m2replay PRIVATE runtime)
+target_link_libraries(m2replay PRIVATE refcore)
 
 # The recompiler (ours; committed) and, when it has been run, its output.
 add_executable(m2recomp tools/m2recomp/main.cpp)

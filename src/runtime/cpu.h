@@ -1,7 +1,8 @@
-// i960KB core: MAME's instruction semantics (i960_core.cpp, BSD-3-Clause,
-// transplanted) over the runtime's bus. Used by the fallback interpreter and
-// the M1 lockstep harness; the recompiler's generated code will call the same
-// semantics so there is one definition of each instruction.
+// i960KB context and runtime services (MAME's semantics, BSD-3-Clause,
+// transplanted; see cpu.cpp). Recompiled game code runs on this: registers,
+// the register cache, call/return, interrupt entry, memory access. There is
+// no instruction interpreter in the runtime; the reference interpreter in
+// src/refcore is a test oracle and is never linked into the game.
 #pragma once
 
 #include <bit>
@@ -26,7 +27,7 @@ public:
     virtual void write_dword(uint32_t addr, uint32_t data) = 0;
 
     // Handler flags at an address. MAME's ldl/ldt/ldq (and stores) advance the
-    // address only where the region is flagged I960Core::BURST; elsewhere
+    // address only where the region is flagged Cpu::BURST; elsewhere
     // (device FIFOs) they access the same address repeatedly.
     virtual uint16_t flags(uint32_t addr) { (void)addr; return 0; }
 
@@ -56,23 +57,13 @@ using s64 = int64_t;
 template <typename T, typename U> constexpr T BIT(T x, U n) noexcept { return (x >> n) & T(1); }
 constexpr uint64_t mulu_32x32(uint32_t a, uint32_t b) { return uint64_t(a) * uint64_t(b); }
 
-class I960Core {
+class Cpu {
 public:
     static constexpr uint16_t BURST = 0x0001;
 
-    explicit I960Core(Bus *b) : bus(b) {}
+    explicit Cpu(Bus *b) : bus(b) {}
 
     void reset();                               // MAME device_reset
-    void execute_one();                         // one instruction, as MAME's execute_run loop body
-    // One instruction whose address and first word are known at compile time
-    // (recompiled code). Same semantics as execute_one; MEMB displacements are
-    // still fetched from ROM through the bus by get_ea.
-    void exec(uint32_t pc, uint32_t word) {
-        m_PIP = pc;
-        m_IP = pc + 4;
-        m_stalled = false;
-        execute_op(word);
-    }
     void execute_set_input(int irqline, int state);
     void check_immediate_irqs();                // take an immediate interrupt if one is waiting
 
@@ -89,22 +80,12 @@ public:
     int8_t m_irq_line_state[4]{};
 
     // Interrupt observer: called at every interrupt taken (vector, IP, from
-    // the pending table or not). The harness checks these against MAME's log.
+    // the pending table or not). The lockstep harness checks these against
+    // MAME's log.
     void (*on_take)(void *ctx, int vector, uint32_t ip, bool pending) = nullptr;
     void *on_take_ctx = nullptr;
 
-    // Everything below is also used by recompiled code (memory helpers, frame
-    // management, interrupt entry), so it is public.
-    // Kept so the transplanted code compiles unchanged; never set.
-    bool m_stalled = false;
-    struct {
-        uint32_t t1 = 0, t2 = 0;
-        int index = 0, size = 0;
-        bool burst_mode = false;
-        bool iswriteop = false;
-    } m_stall_state;
-    int m_icount = 0; // MAME cycle estimate; unused
-
+    // Services called by recompiled code.
     uint32_t i960_read_dword_unaligned(uint32_t address);
     std::pair<uint32_t, uint16_t> i960_read_dword_unaligned_flags(uint32_t address);
     uint16_t i960_read_word_unaligned(uint32_t address);
@@ -112,40 +93,11 @@ public:
     uint16_t i960_write_dword_unaligned_flags(uint32_t address, uint32_t data);
     void i960_write_word_unaligned(uint32_t address, uint16_t data);
     void send_iac(uint32_t adr);
-    uint32_t get_ea(uint32_t opcode);
-    uint32_t get_1_ri(uint32_t opcode);
-    uint32_t get_2_ri(uint32_t opcode);
-    uint64_t get_2_ri64(uint32_t opcode);
-    void set_ri(uint32_t opcode, uint32_t val);
-    void set_ri2(uint32_t opcode, uint32_t val, uint32_t val2);
-    void set_ri64(uint32_t opcode, uint64_t val);
-    double get_1_rif(uint32_t opcode);
-    double get_2_rif(uint32_t opcode);
-    void set_rif(uint32_t opcode, double val);
-    double get_1_rifl(uint32_t opcode);
-    double get_2_rifl(uint32_t opcode);
-    void set_rifl(uint32_t opcode, double val);
-    uint32_t get_1_ci(uint32_t opcode);
-    uint32_t get_2_ci(uint32_t opcode);
-    uint32_t get_disp(uint32_t opcode);
-    uint32_t get_disp_s(uint32_t opcode);
-    void cmp_s(int32_t v1, int32_t v2);
-    void cmp_u(uint32_t v1, uint32_t v2);
-    void concmp_s(int32_t v1, int32_t v2);
-    void concmp_u(uint32_t v1, uint32_t v2);
-    void cmp_d(double v1, double v2);
-    void bxx(uint32_t opcode, int mask);
-    void bxx_s(uint32_t opcode, int mask);
-    void fxx(uint32_t opcode, int mask);
-    void test(uint32_t opcode, int mask);
-    double round_to_int(double val);
-    void execute_op(uint32_t opcode);
     void take_interrupt(int vector, int lvl);
     void check_pending_irqs();
     void do_call(uint32_t adr, int type, uint32_t stack);
     void do_ret_0();
     void do_ret();
-    void burst_stall_save(uint32_t t1, uint32_t t2, int index, int size, bool iswriteop);
     void standard_irq_callback(int, uint32_t) {}
 };
 

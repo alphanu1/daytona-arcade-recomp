@@ -35,7 +35,7 @@ int main(int argc, char **argv) {
     uint64_t done = 0;
     try {
         rt::M2ReplayBus bus(load(dir + "/program.bin"), load(dir + "/main_data.bin"), argv[2]);
-        rt::I960Core core(&bus);
+        rt::Cpu core(&bus);
         bus.attach(&core);
         rt::Lockstep ls(core, argv[3]);
         core.reset();

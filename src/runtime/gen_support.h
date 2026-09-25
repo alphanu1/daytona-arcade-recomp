@@ -4,7 +4,7 @@
 // access, call/return frame management and interrupt entry, as a CPU would.
 #pragma once
 
-#include "runtime/i960_core.h"
+#include "runtime/cpu.h"
 #include "runtime/lockstep.h"
 
 #include <bit>
@@ -14,7 +14,7 @@
 namespace gen {
 
 struct Env {
-    rt::I960Core &c;
+    rt::Cpu &c;
     rt::Lockstep &ls;
 };
 

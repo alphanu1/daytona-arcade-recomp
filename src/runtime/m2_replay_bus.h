@@ -3,7 +3,7 @@
 // range answered from a MAME trace, every device write checked against it.
 #pragma once
 
-#include "runtime/i960_core.h"
+#include "runtime/cpu.h"
 #include "trace/trace.h"
 
 #include <array>
@@ -25,7 +25,7 @@ public:
     // program: 0x200000 bytes at 0x00000000; main_data: 0x2000000 at 0x02000000.
     M2ReplayBus(std::vector<uint8_t> program, std::vector<uint8_t> main_data, const std::string &trace_path);
 
-    void attach(const I960Core *core) { core_ = core; }
+    void attach(const Cpu *core) { core_ = core; }
 
     uint32_t fetch(uint32_t addr) override;
     uint8_t read_byte(uint32_t addr) override;
@@ -34,7 +34,7 @@ public:
     void write_byte(uint32_t addr, uint8_t data) override;
     void write_word(uint32_t addr, uint16_t data) override;
     void write_dword(uint32_t addr, uint32_t data) override;
-    uint16_t flags(uint32_t addr) override { return page(addr).burst ? I960Core::BURST : 0; }
+    uint16_t flags(uint32_t addr) override { return page(addr).burst ? Cpu::BURST : 0; }
 
     uint64_t epochs_matched() const { return epoch_; }
     uint64_t events_matched() const { return events_; }
@@ -74,7 +74,7 @@ private:
     uint64_t epoch_ = 0;   // epochs fully matched
     uint64_t events_ = 0;  // events matched in total
     bool done_ = false;
-    const I960Core *core_ = nullptr;
+    const Cpu *core_ = nullptr;
 };
 
 } // namespace rt

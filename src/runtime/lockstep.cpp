@@ -7,7 +7,7 @@
 
 namespace rt {
 
-Lockstep::Lockstep(I960Core &core, const std::string &path) : core_(core) {
+Lockstep::Lockstep(Cpu &core, const std::string &path) : core_(core) {
     std::ifstream f(path);
     if (!f) throw std::runtime_error("cannot open " + path);
     std::string line;

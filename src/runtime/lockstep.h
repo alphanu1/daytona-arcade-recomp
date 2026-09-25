@@ -4,7 +4,7 @@
 // interpreter harness and recompiled code, so both use one definition.
 #pragma once
 
-#include "runtime/i960_core.h"
+#include "runtime/cpu.h"
 #include "runtime/m2_replay_bus.h"
 
 #include <cstdint>
@@ -16,7 +16,7 @@ namespace rt {
 class Lockstep {
 public:
     // Loads MAME's IRQ log (M2TRACE_IRQLOG) and hooks the core's take callback.
-    Lockstep(I960Core &core, const std::string &irq_log_path);
+    Lockstep(Cpu &core, const std::string &irq_log_path);
 
     uint64_t count = 0;            // completed instructions so far
     uint64_t end_count = UINT64_MAX; // MAME's run ends here
@@ -42,7 +42,7 @@ private:
     void refresh_next();
     static void on_take(void *ctx, int vector, uint32_t ip, bool pending);
 
-    I960Core &core_;
+    Cpu &core_;
     std::vector<Event> log_;
     size_t next_ = 0;
     int taken_ = 0;

@@ -12,7 +12,7 @@ instructions/s with lockstep checks on every instruction).
 build/gen); `scripts/m2_check.sh` traces MAME and runs both harnesses.
 An address with no recompiled code is a hard error naming it.
 
-The reference core (`src/runtime/i960_core`, MAME's semantics) is a test
+The reference interpreter (`src/refcore`, MAME's executor) is a test
 oracle only: `m2replay` uses it; the game build will never link it.
 
 Earlier, **M1 reference milestone**: `m2replay` runs Daytona's own code through

@@ -14,7 +14,7 @@
 //   M2REPLAY_REGS_AT=n   print the register file before instruction n
 //   M2REPLAY_DUMP_DIR=d  write our copy of a region whose hash differs
 
-#include "runtime/i960_core.h"
+#include "refcore/i960_ref.h"
 #include "runtime/lockstep.h"
 #include "runtime/m2_replay_bus.h"
 
@@ -46,7 +46,7 @@ int main(int argc, char **argv) {
     uint64_t done = 0;
     try {
         rt::M2ReplayBus bus(load(dir + "/program.bin"), load(dir + "/main_data.bin"), argv[2]);
-        rt::I960Core core(&bus);
+        rt::I960Ref core(&bus);
         bus.attach(&core);
         rt::Lockstep ls(core, argv[3]);
         core.reset();

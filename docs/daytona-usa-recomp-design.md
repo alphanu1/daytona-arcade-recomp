@@ -83,7 +83,7 @@ The recompiler runs at build time on the user's machine, so no generated Sega co
 
 **Memory bus.** Main RAM, work RAM and shared RAM are flat host arrays accessed inline. MMIO ranges (TGP FIFO, geometrizer, tilemap RAM, palette, I/O dual-port RAM, sound UART, comm RAM) go through a page-table of handlers, resolved at compile time where the address is constant.
 
-**No fallback.** Every instruction the game runs is statically recompiled to native code. There is no interpreter in the shipped build. A jump to an address with no recompiled code is a hard error that names the address; the fix is to add it to `seeds/daytona93.txt` and recompile. The reference i960 core in `src/runtime/i960_core` exists only for the test harness (`m2replay`) and is never linked into the game.
+**No fallback.** Every instruction the game runs is statically recompiled to native code. There is no interpreter in the shipped build. A jump to an address with no recompiled code is a hard error that names the address; the fix is to add it to `seeds/daytona93.txt` and recompile. The runtime (`src/runtime/cpu`) holds the i960 context and the services generated code calls (call/return with the register cache, interrupt entry, memory); it has no interpreter. The reference interpreter in `src/refcore` exists only for the test harness (`m2replay`) and is never linked into the game (`m2native` does not link it).
 
 ## i960 static recompiler
 
