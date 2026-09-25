@@ -2,6 +2,28 @@
 
 ## Current state
 
+**M2 geometry, native and matching MAME.** The whole geometry path now runs
+natively inside `m2native`: recompiled i960, recompiled TGP, buffer RAM, and
+the geometrizer (`src/runtime/geo.cpp`, MAME's HLE transplanted; the
+original Model 2 geometrizer's DSP code is undumped). At each MAME vblank
+(same i960 instruction count) the geometrizer walks our buffer RAM and is
+held to MAME's log (patch 0002, `M2TRACE_GEOLOG`): every word it hands the
+rasterizer and every polygon kept after culling and clipping, vertices bit
+for bit.
+
+| scenario | frames | rasterizer words | polygons kept | result |
+| --- | --- | --- | --- | --- |
+| attract | 597 | 11,954,823 | 403,475 | identical |
+| race_steer_left | 5,997 | 151,874,210 | 6,658,999 | identical |
+| time_attack | 5,997 | 136,744,927 | 5,937,107 | identical |
+
+A mutant (luma off by one when it is exactly 100, in all four parsers)
+diverges at frame 173, rasterizer word 385. A one-ulp change to a vertex
+cannot show: the geometrizer hands the rasterizer 24-bit floats (MAME's
+`f2u(x) >> 8`), which drop the low 8 bits. `scripts/m2_check.sh SCENARIO`
+runs all of it (the race's geometrizer log is 2.8 GB of text; it is deleted
+after the check unless M2_CHECK_KEEP is set).
+
 **M2 started: the TGP program is statically recompiled and matches MAME.**
 The TGP runs a 2,024-word program the i960 uploads from the data ROM;
 `m2tgprecomp` turns it into native C++ (MAME's MB86233 semantics inlined per
@@ -120,21 +142,23 @@ Running the plugin (user's machine, with their ROM set):
 
 ## Next, in order
 
-1. Mailbox rule for the shipped build: the TGP runs to its FIFO wait before
-   the i960 reads the mailbox (what `m2native` does now); confirm the game
-   only polls it (fewer poll iterations are the only effect), then state it
-   in the design doc.
-2. M2's other half: the geometrizer (display list from buffer RAM at
-   vblank); dump display lists and diff them against MAME.
-3. Harvest the 21 indirect sites no run has hit (47 of 68 so far). Two
-   scripted screens do not respond as expected (see Findings): circuit
-   select ignores scripted steering, and test-mode red presses land one item
-   short. Best settled by the user playing once with M2TRACE_RECORD_INPUT on
-   their PC and sharing the .m2in (inputs only, no game data).
-4. Shipped native build: interrupts at safe points instead of a check per
-   instruction, RAM inline instead of through the virtual bus. Targets:
-   x86-64 and ARM64 on Windows, Linux, macOS, Android and Raspberry Pi; the
-   generated C++ is portable, no host assembly, no FP contraction.
+1. M3 renderer: a GPU backend drawing the display list (`Geo::polys`), with
+   MAME's projection (`model2_3d_project`) and its z-bucket, window order.
+   Tilemaps (segaic24) and palette alongside. Compare frames against MAME
+   screenshots (`-video` on, snapshots) with a tolerance, since MAME's
+   software rasterizer is not the hardware's either.
+2. The game loop outside lockstep: the i960 driven by the native board
+   (vblank and timer interrupts at safe points, sound UART and I/O board
+   stubs), so the recompiled game runs on its own with no trace.
+3. Portability of the geometrizer's libm calls: `std::hypot` (window clip
+   planes) and `sqrt` come from the C library; pin them to a correctly
+   rounded implementation before comparing across Windows, macOS, Android.
+4. Harvest the 21 indirect sites no run has hit (47 of 68 so far); best from
+   a user recording (M2TRACE_RECORD_INPUT) of circuit select and test mode.
+5. Mailbox rule for the shipped build (TGP runs to its FIFO wait before the
+   i960 reads the mailbox), then the shipped native build: interrupts at safe
+   points, RAM inline. Targets: x86-64 and ARM64 on Windows, Linux, macOS,
+   Android and Raspberry Pi.
 
 ## Open decisions
 

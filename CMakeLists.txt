@@ -55,6 +55,7 @@ add_library(runtime STATIC
     src/runtime/cpu.cpp
     src/runtime/tgp.cpp
     src/runtime/m2_tgp_board.cpp
+    src/runtime/geo.cpp
     src/runtime/m2_replay_bus.cpp
     src/runtime/lockstep.cpp
 )
@@ -67,7 +68,7 @@ add_library(refcore STATIC src/refcore/i960_ref.cpp)
 target_link_libraries(refcore PUBLIC runtime)
 if(NOT MSVC)
     # Upstream MAME code: keep its own warnings out of ours.
-    set_source_files_properties(src/runtime/cpu.cpp src/refcore/i960_ref.cpp PROPERTIES COMPILE_OPTIONS "-Wno-unused-parameter;-Wno-sign-compare")
+    set_source_files_properties(src/runtime/cpu.cpp src/refcore/i960_ref.cpp src/runtime/geo.cpp PROPERTIES COMPILE_OPTIONS "-Wno-unused-parameter;-Wno-sign-compare;-Wno-unused-but-set-variable;-Wno-attributes")
 endif()
 
 add_executable(m2replay tools/m2replay/main.cpp)

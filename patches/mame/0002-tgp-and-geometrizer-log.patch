@@ -26,10 +26,10 @@ index 2e483756a3..26fb932ace 100644
  		do_stall:
  			m_pc = m_ppc;
 diff --git a/src/mame/sega/model2.cpp b/src/mame/sega/model2.cpp
-index f7dc50647a..21cce66c70 100644
+index f7dc50647a..5022cb3236 100644
 --- a/src/mame/sega/model2.cpp
 +++ b/src/mame/sega/model2.cpp
-@@ -96,6 +96,26 @@
+@@ -96,6 +96,38 @@
  #include "model1io2.lh"
  #include "segabill.lh"
  
@@ -41,6 +41,18 @@ index f7dc50647a..21cce66c70 100644
 +//   bank V          TGP wrote its bank register
 +//   mr A V          TGP read banked external memory (A = io offset)
 +//   mw A V M        TGP wrote banked external memory (M = mem_mask)
++FILE *m2_geo_log()
++{
++	static FILE *f = nullptr;
++	static bool tried = false;
++	if (!tried) {
++		tried = true;
++		if (const char *p = getenv("M2TRACE_GEOLOG"))
++			f = fopen(p, "w");
++	}
++	return f;
++}
++
 +static FILE *m2_tgp_log()
 +{
 +	static FILE *f = nullptr;
@@ -56,7 +68,7 @@ index f7dc50647a..21cce66c70 100644
  /* Timers - these count down at 25 MHz and pull IRQ2 when they hit 0 */
  u32 model2_state::timers_r(offs_t offset)
  {
-@@ -474,31 +494,42 @@ void model2_tgp_state::copro_tgp_io_map(address_map &map)
+@@ -474,31 +506,42 @@ void model2_tgp_state::copro_tgp_io_map(address_map &map)
  void model2_tgp_state::copro_tgp_rf_map(address_map &map)
  {
  	map(0x0, 0x0).nopw(); // leds? busy flag?
@@ -107,7 +119,7 @@ index f7dc50647a..21cce66c70 100644
  	if(adr & 0x400000) {
  		adr &= 0x7fff;
  		COMBINE_DATA(&m_bufferram[adr]);
-@@ -508,6 +539,7 @@ void model2_tgp_state::copro_tgp_memory_w(offs_t offset, u32 data, u32 mem_mask)
+@@ -508,6 +551,7 @@ void model2_tgp_state::copro_tgp_memory_w(offs_t offset, u32 data, u32 mem_mask)
  void model2_tgp_state::copro_tgp_bank_w(offs_t offset, u32 data, u32 mem_mask)
  {
  	COMBINE_DATA(&m_copro_tgp_bank_reg);
@@ -115,7 +127,7 @@ index f7dc50647a..21cce66c70 100644
  	if(m_copro_tgp_bank_reg & 0xc00000)
  		m_copro_tgp_bank.select(0);
  	else
-@@ -612,6 +644,12 @@ void model2_tgp_state::copro_halt()
+@@ -612,6 +656,12 @@ void model2_tgp_state::copro_halt()
  
  void model2_tgp_state::copro_boot()
  {
@@ -128,3 +140,56 @@ index f7dc50647a..21cce66c70 100644
  	m_copro_tgp->set_input_line(INPUT_LINE_HALT, CLEAR_LINE);
  	m_copro_tgp->pulse_input_line(INPUT_LINE_RESET, attotime::zero);
  }
+@@ -2425,7 +2475,11 @@ void model2_state::screen_vblank(int state)
+ 	m_framenum = m_screen->frame_number();
+ 
+ 	// if 60 Hz mode or frame number is even, trigger geometrizer to start new frame
+-	if ((m_videocontrol & 1) == 0 || (m_framenum & 1) == 0)
++	const bool parse = (m_videocontrol & 1) == 0 || (m_framenum & 1) == 0;
++	// daytona-arcade-recomp: geometrizer log (M2TRACE_GEOLOG, model2_v.cpp)
++	if (FILE *f = m2_geo_log())
++		fprintf(f, "vb %u %llu %d\n", unsigned(m_framenum), (unsigned long long)m_maincpu->insn_count(), parse ? 1 : 0);
++	if (parse)
+ 		geo_parse();
+ 
+ 	const u32 line = 1 << 0;
+diff --git a/src/mame/sega/model2_v.cpp b/src/mame/sega/model2_v.cpp
+index 3a5bfa51ba..a066ac6bf7 100644
+--- a/src/mame/sega/model2_v.cpp
++++ b/src/mame/sega/model2_v.cpp
+@@ -94,6 +94,8 @@
+ 
+ #include "corefloat.h"
+ 
++FILE *m2_geo_log(); // daytona-arcade-recomp (model2.cpp)
++
+ #include <cmath>
+ #include <limits>
+ 
+@@ -515,6 +517,16 @@ void model2_state::model2_3d_process_polygon(raster_state *raster, u32 attr)
+ 			for (int i = 0; i < clipped_verts; i++)
+ 				poly->v[i] = verts_out[i];
+ 
++			// daytona-arcade-recomp: each polygon kept for rendering (M2TRACE_GEOLOG)
++			if (FILE *f = m2_geo_log()) {
++				fprintf(f, "poly %x %x %x %x %x %x %x %x %x %d %d %d %d %d %d %d", poly->z, poly->window, poly->texheader[0], poly->texheader[1],
++						poly->texheader[2], poly->texheader[3], poly->luma, poly->texlod, poly->num_vertices,
++						poly->viewport[0], poly->viewport[1], poly->viewport[2], poly->viewport[3], poly->center[0], poly->center[1], raster->reverse);
++				for (int i = 0; i < poly->num_vertices; i++)
++					fprintf(f, " %x %x %x %x %x", f2u(poly->v[i].x), f2u(poly->v[i].y), f2u(poly->v[i].pz), f2u(poly->v[i].pu), f2u(poly->v[i].pv));
++				fprintf(f, "\n");
++			}
++
+ 			/* add to our sorted list */
+ 			raster->poly_sorted_list[object.z] = poly;
+ 			poly->next = zpoly;
+@@ -768,6 +780,9 @@ void model2_state::draw_framebuffer(bitmap_rgb32 &bitmap, const rectangle &clipr
+ /* 3D Rasterizer main data input port */
+ void model2_state::model2_3d_push(raster_state *raster, u32 input)
+ {
++	// daytona-arcade-recomp: every word the geometrizer hands the rasterizer
++	if (FILE *f = m2_geo_log()) fprintf(f, "p %x\n", input);
++
+ 	/* see if we have a command in progress */
+ 	if (raster->cur_command != 0)
+ 	{

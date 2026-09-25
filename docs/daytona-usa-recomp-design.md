@@ -29,7 +29,7 @@ Figures below are confirmed against MAME at `dddd7368` (`src/mame/sega/model2.cp
 | Subsystem | Part (MAME) | Clock (MAME) | Strategy |
 | --- | --- | --- | --- |
 | Main CPU | Intel i960KB (`I80960KB`), little-endian | `50_MHz_XTAL / 2` = 25 MHz | Static recompilation to C++ |
-| Coprocessor | One Fujitsu MB86234 TGP (`m_copro_tgp`); MAME's MB86234 is an empty subclass of its MB86233 | `50_MHz_XTAL` = 50 MHz | HLE in C++, validated against MAME's LLE TGP |
+| Coprocessor | One Fujitsu MB86234 TGP (`m_copro_tgp`); MAME's MB86234 is an empty subclass of its MB86233 | `50_MHz_XTAL` = 50 MHz | Its uploaded program statically recompiled to native C++, validated against MAME's LLE TGP |
 | Geometrizer | Separate from the TGP: walks the display list in buffer RAM at vblank (`geo_parse`, `model2_v.cpp`) | — | Reimplemented; MAME's version is HLE |
 | Rasterizer | Sega custom chips; MAME has no device, it is driver code | — | Replaced by host GPU renderer |
 | 2D tilemaps / HUD | `S24TILE` (System 24 tilemap chip) | — | Reimplemented, composited on GPU |
@@ -165,6 +165,10 @@ The TGP is replaced by C++ that consumes the same FIFO command stream the i960 w
 - Two units share the geometry work: the TGP (programmable, results can return to the i960) and the geometrizer, which walks the display list in buffer RAM at vblank and transforms, lights, clips and projects polygons for the rasterizer. Which of the two does what for Daytona is established from traces, not assumed.
 - MAME runs the TGP microcode at low level (MB86234 = MB86233 core); it is the oracle the recompiled program is matched against bit for bit, including its float rounding (host IEEE single, no FP contraction). MAME's geometrizer is HLE in host `float`, so it is a weaker oracle for display-list output than the TGP is for FIFO results.
 - Any command that returns results to the i960 (e.g. collision or matrix readback) must return identical values, since game logic depends on them.
+
+**Geometrizer: native HLE**
+
+The original Model 2's geometrizer runs code from ROM inside its DSP; that code is not dumped, so there is nothing to recompile. It is native C++ transplanted from MAME's high-level implementation (`src/runtime/geo.cpp`): at vblank it walks the display list in buffer RAM, transforms, lights, culls and clips, and produces the polygon list. Measured against MAME at every vblank (same i960 instruction count), on our own buffer RAM: identical rasterizer input and kept polygons through a whole race (see Milestones). The rasterizer takes 24-bit floats (MAME's `f2u(x) >> 8`). Its libm calls (`hypot`, `sqrt`) are to be pinned to a correctly rounded implementation so all hosts agree.
 
 **Display list**
 
@@ -314,7 +318,7 @@ The critical path is i960 parity, then TGP parity; rendering and polish can proc
 
 1. **M0 Tooling:** MAME trace plugin, input recorder, trace diff tool, i960 disassembler.
 2. **M1 Boot:** Recompiled code reaches attract mode with RAM hashes matching MAME; no graphics.
-3. **M2 Geometry:** the recompiled TGP program matches MAME's FIFO output for attract mode (met standalone; see TGP section); display lists dump correctly.
+3. **M2 Geometry:** the recompiled TGP program matches MAME's FIFO output for attract mode; display lists dump correctly. **Met**: native i960 + recompiled TGP + native buffer RAM + native geometrizer match MAME's rasterizer input and kept polygons bit for bit through attract, a 6,000-frame race and time attack (152 M rasterizer words, 6.7 M polygons in the race).
 4. **M3 Pixels:** GPU renderer draws attract mode and a race at native res; tilemaps and HUD work.
 5. **M4 Playable:** Sound, inputs, full-race replay parity on all three courses.
 6. **M5 Cabinet feel:** Force feedback, link play on LAN, PCB side-by-side validation.

@@ -44,6 +44,8 @@ public:
 
     void attach(const Cpu *core) { core_ = core; }
     void set_model(DeviceModel *m) { model_ = m; }
+    // A dword of RAM, ROM or untapped register space, bypassing the trace.
+    uint32_t peek(uint32_t addr);
 
     uint32_t fetch(uint32_t addr) override;
     uint8_t read_byte(uint32_t addr) override;

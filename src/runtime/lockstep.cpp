@@ -43,7 +43,10 @@ bool Lockstep::apply() {
     const uint32_t ip_before = core_.m_IP;
     while (next_ < log_.size() && log_[next_].count == count && log_[next_].kind != Event::Pend) {
         const Event &e = log_[next_];
-        if (e.kind == Event::Line) {
+        if (e.kind == Event::Call) {
+            ++next_;
+            calls_[e.fn]();
+        } else if (e.kind == Event::Line) {
             ++next_;
             core_.execute_set_input(e.a, e.b);
         } else if (e.kind == Event::Imm) {
@@ -61,6 +64,19 @@ bool Lockstep::apply() {
                          std::to_string(log_[next_].count) + " that ours did not");
     refresh_next();
     return core_.m_IP != ip_before;
+}
+
+void Lockstep::add_callback(uint64_t at, std::function<void()> fn) {
+    Event e{};
+    e.kind = Event::Call;
+    e.count = at;
+    e.fn = calls_.size();
+    calls_.push_back(std::move(fn));
+    // Before the first event at the same count or later (the log is in count order).
+    auto it = log_.begin() + long(next_);
+    while (it != log_.end() && it->count < at) ++it;
+    log_.insert(it, e);
+    refresh_next();
 }
 
 void Lockstep::on_take(void *ctx, int vector, uint32_t ip, bool pending) {

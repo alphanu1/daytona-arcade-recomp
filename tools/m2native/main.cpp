@@ -10,6 +10,9 @@
 #include "runtime/lockstep.h"
 #include "runtime/m2_replay_bus.h"
 #include "runtime/m2_tgp_board.h"
+#include "geocheck.h"
+
+#include <memory>
 
 #include <chrono>
 #include <cinttypes>
@@ -28,8 +31,8 @@ std::vector<uint8_t> load(const std::string &path) {
 } // namespace
 
 int main(int argc, char **argv) {
-    if (argc != 4) {
-        std::fprintf(stderr, "usage: m2native IMAGES_DIR TRACE.m2tr IRQ.log\n");
+    if (argc != 4 && argc != 5) {
+        std::fprintf(stderr, "usage: m2native IMAGES_DIR TRACE.m2tr IRQ.log [GEO.log]\n");
         return 2;
     }
     const std::string dir = argv[1];
@@ -45,6 +48,13 @@ int main(int argc, char **argv) {
         rt::Lockstep ls(core, argv[3]);
         core.reset();
         gen::Env env{core, ls};
+        // M2: the geometrizer, checked at each vblank against MAME's GEO.log.
+        std::unique_ptr<rt::Geo> geom;
+        std::unique_ptr<GeoCheck> geocheck;
+        if (argc == 5) {
+            geom = std::make_unique<rt::Geo>(load(dir + "/polygons.bin"), load(dir + "/textures.bin"), board.buffer_data());
+            geocheck = std::make_unique<GeoCheck>(argv[4], *geom, board, bus, ls);
+        }
 
         const auto t0 = std::chrono::steady_clock::now();
         while (!ls.finished() && !bus.trace_done()) {
@@ -71,11 +81,18 @@ int main(int argc, char **argv) {
                     "; FIFO-status polls %" PRIu64 " differ of %" PRIu64 "; buffer RAM hash differs at %" PRIu64 " of %" PRIu64 " samples\n",
                     board.tgp_instructions(), geo.fifo_words, geo.buffer_mismatch, geo.buffer_reads, geo.status_mismatch,
                     geo.status_reads, geo.region_mismatch, geo.region_samples);
+        if (geocheck)
+            std::printf("  geometrizer (native): %" PRIu64 " frames, %" PRIu64 " rasterizer words and %" PRIu64
+                        " polygons identical to MAME\n",
+                        geocheck->frames_checked, geocheck->words, geocheck->polys);
         if (geo.buffer_mismatch) std::printf("  first buffer RAM difference: %s\n", geo.first_buffer_mismatch.c_str());
         if (geo.status_mismatch) std::printf("  first FIFO-status difference: %s\n", geo.first_status_mismatch.c_str());
         return 0;
     } catch (const rt::Divergence &d) {
         std::printf("m2native: DIVERGED after %" PRIu64 " instructions: %s\n", done, d.what());
+        return 1;
+    } catch (const rt::GeoFatal &f) {
+        std::printf("m2native: GEOMETRIZER FATAL after %" PRIu64 " instructions: %s\n", done, f.what());
         return 1;
     } catch (const rt::TgpFatal &f) {
         std::printf("m2native: TGP FATAL after %" PRIu64 " instructions: %s\n", done, f.what());

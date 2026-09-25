@@ -166,7 +166,7 @@ index f2a2f23cd4..1be7e3fc15 100644
  {
  	m_SAT        = m_program.read_dword(0);
 diff --git a/src/devices/cpu/i960/i960.h b/src/devices/cpu/i960/i960.h
-index 4200f98a99..7b382ab239 100644
+index 4200f98a99..e6fcef72a6 100644
 --- a/src/devices/cpu/i960/i960.h
 +++ b/src/devices/cpu/i960/i960.h
 @@ -5,6 +5,9 @@
@@ -187,9 +187,14 @@ index 4200f98a99..7b382ab239 100644
  
  	// device_execute_interface overrides
  	virtual uint32_t execute_min_cycles() const noexcept override { return 1; } /* ???? TODO: Exact timing unknown */
-@@ -99,6 +103,25 @@ protected:
+@@ -98,7 +102,30 @@ protected:
+ 	// device_disasm_interface overrides
  	virtual std::unique_ptr<util::disasm_interface> create_disassembler() override;
  
++public:
++	// daytona-arcade-recomp: completed instructions so far (lockstep position)
++	uint64_t insn_count() const { return m_insn_count; }
++
  private:
 +	// daytona-arcade-recomp: indirect-transfer harvest (M2TRACE_BRANCHES)
 +	enum branch_kind : uint32_t { BK_BX, BK_BALX, BK_CALLX, BK_CALLS, BK_IRQ, BK_ICR, BK_IRQ_AT, BK_IAC };

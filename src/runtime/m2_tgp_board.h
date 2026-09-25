@@ -33,6 +33,8 @@ public:
     void buffer_w(uint32_t byte_offset, uint32_t data, uint32_t mask);
 
     const uint32_t *buffer() const { return buffer_; }
+    uint32_t *buffer_data() { return buffer_; }             // the geometrizer reads its display list here
+    uint32_t geo_read_start() const { return geo_read_start_; }
     uint64_t tgp_instructions() const { return tgp_.count; }
     bool booted() const { return booted_; }
 

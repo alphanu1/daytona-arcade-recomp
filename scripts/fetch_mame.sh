@@ -11,7 +11,7 @@ if [ ! -d "$DEST/.git" ]; then
 fi
 cd "$DEST"
 git sparse-checkout set --no-cone \
-    /src/devices/cpu/i960/ \
+    /src/devices/cpu/i960/ /src/devices/cpu/mb86233/ \
     /src/mame/sega/model2.cpp /src/mame/sega/model2.h \
     /src/mame/sega/model2_v.cpp /src/mame/sega/model2_m.cpp \
     /src/mame/shared/segam1audio.cpp /src/mame/shared/segam1audio.h

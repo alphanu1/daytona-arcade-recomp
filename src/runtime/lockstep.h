@@ -8,6 +8,7 @@
 #include "runtime/m2_replay_bus.h"
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -29,15 +30,21 @@ public:
         return apply();
     }
     bool finished() const { return count >= end_count; }
+    // Run fn when `at` instructions have completed, before any interrupt
+    // event at the same count (MAME's vblank handler parses the display list
+    // before it raises the vblank line). Call before the run starts.
+    void add_callback(uint64_t at, std::function<void()> fn);
     int interrupts() const { return taken_; }
 
 private:
     struct Event {
-        enum Kind { Line, Imm, Pend, End } kind;
+        enum Kind { Call, Line, Imm, Pend, End } kind;
         uint64_t count;
         int a = 0, b = 0;
         uint32_t ip = 0;
+        size_t fn = 0; // Call: index into calls_
     };
+    std::vector<std::function<void()>> calls_;
     bool apply();
     void refresh_next();
     static void on_take(void *ctx, int vector, uint32_t ip, bool pending);

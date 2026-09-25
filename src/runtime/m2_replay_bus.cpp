@@ -230,6 +230,16 @@ void M2ReplayBus::device_write(uint32_t addr, uint32_t data, uint32_t mask) {
 
 // Sub-word device accesses reach the tap as the containing dword with a lane
 // mask, as in MAME's 32-bit little-endian space.
+uint32_t M2ReplayBus::peek(uint32_t addr) {
+    addr &= ~3u;
+    const Page &p = page(addr);
+    uint32_t v;
+    if (p.kind == Rom || p.kind == Ram) std::memcpy(&v, p.base + (addr & 0xfff), 4);
+    else if (p.kind == Unmapped) std::memcpy(&v, sparse(addr), 4);
+    else throw Divergence("peek at device address " + hex(addr));
+    return v;
+}
+
 uint32_t M2ReplayBus::fetch(uint32_t addr) {
     const Page &p = page(addr);
     if (p.kind != Rom && p.kind != Ram) throw Divergence("instruction fetch from non-memory " + hex(addr));

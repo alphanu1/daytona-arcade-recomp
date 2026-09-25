@@ -3,5 +3,8 @@
 # Output: extern/mame/m2 (the SUBTARGET name). Several tens of minutes on 4 cores.
 set -eu
 cd "$(dirname "$0")/../extern/mame"
+# The build needs the whole tree; fetch_mame.sh checks out only what the
+# tests read. Our patches are already applied to the tracked files.
+[ "$(git config core.sparseCheckout)" = true ] && git sparse-checkout disable
 make SUBTARGET=m2 SOURCES=src/mame/sega/model2.cpp TOOLS=0 USE_QTDEBUG=0 NOWERROR=1 SYMBOLS=0 OPTIMIZE=2 \
     -j"$(nproc)" "$@"
