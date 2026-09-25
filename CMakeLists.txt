@@ -46,6 +46,21 @@ target_link_libraries(i960 PUBLIC softfloat)
 add_library(trace STATIC src/trace/trace.cpp)
 target_include_directories(trace PUBLIC src)
 
+# i960 runtime: MAME's instruction semantics (transplanted, BSD-3) over our bus.
+add_library(runtime STATIC
+    src/runtime/i960_core.cpp
+    src/runtime/m2_replay_bus.cpp
+)
+target_include_directories(runtime PUBLIC src)
+target_link_libraries(runtime PUBLIC trace i960)
+if(NOT MSVC)
+    # Upstream MAME code: keep its own warnings out of ours.
+    set_source_files_properties(src/runtime/i960_core.cpp PROPERTIES COMPILE_OPTIONS "-Wno-unused-parameter;-Wno-sign-compare")
+endif()
+
+add_executable(m1replay tools/m1replay/main.cpp)
+target_link_libraries(m1replay PRIVATE runtime)
+
 add_executable(i960dis tools/i960dis/main.cpp)
 target_link_libraries(i960dis PRIVATE i960)
 

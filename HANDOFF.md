@@ -2,6 +2,13 @@
 
 ## Current state
 
+**M1 interpreter milestone met**: `m1replay` runs Daytona's own code through
+the runtime (MAME's i960 semantics, transplanted) with devices replayed from a
+MAME trace, and matches MAME for all 600 attract frames: 70,926,456
+instructions, 1,153 samples (RAM hashes + registers), 3,315,201 device
+events, 627 interrupts; 2.0 s. `scripts/m1_check.sh` reproduces it.
+Next: the recompiler (M1 step 4).
+
 M0 tooling runs against real MAME with the real game (`daytona93`, user's ROM
 set, git-ignored `roms/` in this cloud container, never committed). Model-2-only
 MAME with the harvest patch builds here (`scripts/build_mame.sh`, ~50 min cold,
@@ -55,10 +62,10 @@ M0 tooling (design doc, Milestones):
    only, no game data), then replaying it here.
 2. M0 exit review against the design doc, then M1 (boot) per the milestone
    order.
-3. M1 (step 2 of the user's order; step 1, FP, is done). Plan in the design
-   doc (M1 plan); UART interrupts decided: option (a). Groundwork done
-   (below); next is the runtime core + interpreter, validated by replaying
-   traces/m1A (trace + IRQ log) from `build/rom_cache/daytona93`.
+3. M1 step 4, the recompiler: per-procedure C++ from `reach` (boot record +
+   harvest seeds), calling the same `I960Core` semantics; exit when generated
+   code reproduces the same 600-frame MATCH and the interpreter-hit log is
+   empty or explained. Then races (UART interrupts mid-code, option (a)).
 
 ## Open decisions
 
@@ -233,6 +240,30 @@ M1 groundwork:
 - `scripts/m2import.py` builds program.bin and main_data.bin from the user's
   zip (CRC-checked, MAME's layout) into git-ignored build/rom_cache.
 
+M1 interpreter (`src/runtime`, `tools/m1replay`):
+
+- Semantics: MAME's `i960.cpp` transplanted (BSD-3, notice kept); runs at
+  36 M instructions/s interpreted.
+- Bugs found on the way to MATCH, in order: (1) the bus treated
+  read-only-tapped ranges as write-checked; (2) **MAME's ldl/ldt/ldq and
+  stores advance the address only on regions flagged BURST** (RAM/ROM, geo
+  program port, TGP function port, comm); elsewhere they repeat the address
+  (FIFO pops). The bus now carries MAME's BURST flags per region; (3) **the
+  plugin's region hash was wrong**: `read_range(first, last, 32)` steps one
+  *byte* at a time, so it hashed a dword at every byte address. Fixed with
+  step 4; MAME-vs-MAME comparisons had still passed because it was
+  deterministic; (4) buffer RAM is written by the geometrizer data port and
+  by the TGP (`copro_tgp_memory_w`), not only the i960, so in M1 it is
+  treated as a device: the i960's accesses are recorded and replayed, and
+  its hash is left to M2; (5) the plugin's own `read_range` fired the
+  buffer-RAM read taps while hashing; taps are now suppressed while sampling.
+- A per-instruction log on both sides (`M2TRACE_PCLOG`, `M1REPLAY_PCLOG`:
+  count, PIP, AC, register-file hash) located bug (2) at instruction 109.
+- Mutation check: addo off by one when src1 == 1 (fired 129 times) diverges
+  at epoch 3; one program-ROM byte flipped (copied to RAM at boot) diverges at
+  epoch 0. Three earlier mutants never fired and so proved nothing either way
+  (operand 12345, base 0x00500000, a data-ROM byte attract never reads).
+
 Real program image (`daytona93`, epr-16530a/16531a, counts only):
 
 - Linear sweep of the 256 KiB image: 55,098 lines, 16,280 undecodable words,
@@ -284,6 +315,8 @@ Also found:
   the MiSTer core's working sound on hardware).
 - Five TGPs. One device; "5x" was a board-level package count.
 - MAME's frame notifier as the lockstep sample point (see Trace tooling).
+- `read_range(a, b, 32)` without a step of 4 (reads every byte address).
+- A mutation test whose mutant is not shown to fire.
 - Using MAME's disassembler as the decode authority. It is the text oracle
   only; semantics come from the executor.
 - A TGP microcode ROM dump. The program is uploaded at boot from the game's

@@ -1,5 +1,5 @@
 diff --git a/src/devices/cpu/i960/i960.cpp b/src/devices/cpu/i960/i960.cpp
-index f2a2f23cd4..41ccc5830b 100644
+index f2a2f23cd4..47e479e9ec 100644
 --- a/src/devices/cpu/i960/i960.cpp
 +++ b/src/devices/cpu/i960/i960.cpp
 @@ -558,6 +558,8 @@ void i960_cpu_device::take_interrupt(int vector, int lvl)
@@ -69,18 +69,27 @@ index f2a2f23cd4..41ccc5830b 100644
  			do_call(t1, 0, m_r[I960_SP]);
  			break;
  
-@@ -2300,6 +2313,10 @@ void i960_cpu_device::execute_run()
+@@ -2300,6 +2313,19 @@ void i960_cpu_device::execute_run()
  			execute_burst_stall_op(opcode);
  		else
  			execute_op(opcode);
 +
 +		// daytona-arcade-recomp: a stalled op re-executes later; count it once, on completion
 +		if(!m_stalled && !m_stall_state.burst_mode)
++		{
++			if (m_pc_log && m_insn_count < m_pc_log_max)
++			{
++				uint64_t h = 0xcbf29ce484222325ULL;
++				for (int i = 0; i < 32; i++)
++					h = (h ^ m_r[i]) * 0x100000001b3ULL;
++				fprintf(m_pc_log, "%llu %08x %08x %016llx\n", (unsigned long long)m_insn_count, m_PIP, m_AC, (unsigned long long)h);
++			}
 +			m_insn_count++;
++		}
  	}
  }
  
-@@ -2309,6 +2326,8 @@ void i960_cpu_device::execute_set_input(int irqline, int state)
+@@ -2309,6 +2335,8 @@ void i960_cpu_device::execute_set_input(int irqline, int state)
  		return;
  
  	m_irq_line_state[irqline] = state;
@@ -89,7 +98,7 @@ index f2a2f23cd4..41ccc5830b 100644
  
  	int int_tab =  m_program.read_dword(m_PRCB+20);    // interrupt table
  	int cpu_pri = (m_PC>>16)&0x1f;
-@@ -2379,6 +2398,13 @@ void i960_cpu_device::execute_set_input(int irqline, int state)
+@@ -2379,6 +2407,20 @@ void i960_cpu_device::execute_set_input(int irqline, int state)
  
  void i960_cpu_device::device_start()
  {
@@ -99,16 +108,28 @@ index f2a2f23cd4..41ccc5830b 100644
 +		const char *irq_path = getenv("M2TRACE_IRQLOG");
 +		if (irq_path && *irq_path)
 +			m_irq_log = fopen(irq_path, "w");
++		const char *pc_path = getenv("M2TRACE_PCLOG");
++		if (pc_path && *pc_path)
++		{
++			m_pc_log = fopen(pc_path, "w");
++			const char *mx = getenv("M2TRACE_PCLOG_MAX");
++			m_pc_log_max = mx ? strtoull(mx, nullptr, 0) : 200000;
++		}
 +	}
  	space(AS_PROGRAM).cache(m_cache);
  	space(AS_PROGRAM).specific(m_program);
  
-@@ -2473,6 +2499,32 @@ void i960_cpu_device::state_string_export(const device_state_entry &entry, std::
+@@ -2473,6 +2515,37 @@ void i960_cpu_device::state_string_export(const device_state_entry &entry, std::
  	}
  }
  
 +void i960_cpu_device::device_stop()
 +{
++	if (m_pc_log)
++	{
++		fclose(m_pc_log);
++		m_pc_log = nullptr;
++	}
 +	if (m_irq_log)
 +	{
 +		fprintf(m_irq_log, "end %llu\n", (unsigned long long)m_insn_count);
@@ -137,7 +158,7 @@ index f2a2f23cd4..41ccc5830b 100644
  {
  	m_SAT        = m_program.read_dword(0);
 diff --git a/src/devices/cpu/i960/i960.h b/src/devices/cpu/i960/i960.h
-index 4200f98a99..f7c5cb8558 100644
+index 4200f98a99..6755f2b883 100644
 --- a/src/devices/cpu/i960/i960.h
 +++ b/src/devices/cpu/i960/i960.h
 @@ -5,6 +5,9 @@
@@ -158,7 +179,7 @@ index 4200f98a99..f7c5cb8558 100644
  
  	// device_execute_interface overrides
  	virtual uint32_t execute_min_cycles() const noexcept override { return 1; } /* ???? TODO: Exact timing unknown */
-@@ -99,6 +103,20 @@ protected:
+@@ -99,6 +103,25 @@ protected:
  	virtual std::unique_ptr<util::disasm_interface> create_disassembler() override;
  
  private:
@@ -170,6 +191,11 @@ index 4200f98a99..f7c5cb8558 100644
 +	// (M2TRACE_IRQLOG). Keyed by the count of completed instructions.
 +	uint64_t m_insn_count = 0;
 +	FILE *m_irq_log = nullptr;
++	// daytona-arcade-recomp: per-instruction log for lockstep debugging
++	// (M2TRACE_PCLOG, first M2TRACE_PCLOG_MAX instructions): count, PIP, AC,
++	// and an FNV-1a hash of r0-r15/g0-g15 after the instruction completes.
++	FILE *m_pc_log = nullptr;
++	uint64_t m_pc_log_max = 0;
 +	void log_branch(branch_kind kind, uint32_t from, uint32_t target)
 +	{
 +		if (m_branch_log_on)

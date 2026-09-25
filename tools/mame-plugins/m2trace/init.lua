@@ -37,6 +37,9 @@ local REGIONS = {
 	{ 0x01800000, 0x01803fff },
 }
 local WRITE_TAPS = {
+	-- buffer RAM (display lists): shared with the geometrizer and the TGP,
+	-- which also write it, so the i960's view of it is recorded like a device.
+	{ 0x00900000, 0x0097ffff, "bufferram" },
 	{ 0x00800000, 0x00803fff, "geo" },
 	{ 0x00804000, 0x00807fff, "geo_prg" },
 	{ 0x00880000, 0x00883fff, "copro_fn" },
@@ -51,6 +54,7 @@ local WRITE_TAPS = {
 -- (M1: devices replayed). RAM and ROM are not tapped; their contents are
 -- covered by the region hashes.
 local READ_TAPS = {
+	{ 0x00900000, 0x0097ffff, "bufferram" },
 	{ 0x00800000, 0x00807fff, "geo" },
 	{ 0x00880000, 0x00887fff, "copro_fifo" },
 	{ 0x00980000, 0x0098003f, "copro_ctl" },
@@ -107,6 +111,9 @@ local function dump_regions()
 end
 
 local sample_errors = 0
+-- True while the plugin itself reads memory (hashing, dumps): its read_range
+-- goes through the address space and would otherwise fire the read taps.
+local sampling = false
 
 -- The Lua reference documents screen.frame_number as a property; at MAME
 -- dddd7368 it is a method. Accept either.
@@ -122,7 +129,10 @@ local function take_sample_unprotected()
 		-- read_range at width 32 returns host-order words; hashing unpacks
 		-- them little-endian, so this assumes a little-endian host (x86-64,
 		-- ARM64). Width 8 would be byte-order safe but four times slower.
-		local bytes = space:read_range(r[1], r[2], 32)
+		-- step 4: read_range advances its address by `step` *bytes*, so width
+		-- 32 without a step reads a dword at every byte address (4x the data,
+		-- mostly unaligned) rather than the region's words.
+		local bytes = space:read_range(r[1], r[2], 32, 4)
 		regions[i] = { r[1], r[2] - r[1] + 1, core.hash_words(bytes) }
 	end
 	if cfg.dump_epoch == epoch then dump_regions() end
@@ -133,7 +143,9 @@ end
 -- MAME drops errors raised inside tap callbacks silently, so a failing sample
 -- would just vanish. Report it (first few, then a count at exit).
 local function take_sample()
+	sampling = true
 	local ok, err = pcall(take_sample_unprotected)
+	sampling = false
 	if not ok then
 		sample_errors = sample_errors + 1
 		if sample_errors <= 3 then
@@ -153,6 +165,7 @@ local function install_taps()
 	for _, t in ipairs(WRITE_TAPS) do
 		taps[#taps + 1] = space:install_write_tap(t[1], t[2], "m2trace_w_" .. t[3],
 			function(offset, data, mask)
+				if sampling then return end
 				local st = stalled()
 				out:write(core.rec_access(true, offset, data, mask, st))
 				if not st and cfg.trigger == "vblank-ack" and offset == IRQ_ACK
@@ -164,6 +177,7 @@ local function install_taps()
 	for _, t in ipairs(READ_TAPS) do
 		taps[#taps + 1] = space:install_read_tap(t[1], t[2], "m2trace_r_" .. t[3],
 			function(offset, data, mask)
+				if sampling then return end
 				out:write(core.rec_access(false, offset, data, mask, stalled()))
 			end)
 	end
