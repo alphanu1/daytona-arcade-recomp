@@ -1,14 +1,32 @@
 #!/usr/bin/env sh
-# Lockstep check (M1): record 600 frames of attract in MAME (trace + IRQ log),
-# build the images from the user's ROM set, and replay them through the
-# runtime. Game-derived files stay in git-ignored traces/ and build/.
+# Lockstep check: record a run in MAME (trace + IRQ log), build the images
+# from the user's ROM set, and replay the run through the recompiled native
+# code (m2native) and the reference interpreter (m2replay).
+# Game-derived files stay in git-ignored traces/ and build/.
 #
-#   scripts/m2_check.sh [FRAMES]
+#   scripts/m2_check.sh                 600 frames of attract, no input
+#   scripts/m2_check.sh SCENARIO        scripts/inputs/SCENARIO.txt (coin up,
+#                                       race, test mode...), its own frame count
+#
+# A scenario's input stream is built from the script with make_input.py; it
+# needs one recorded stream for the field layout (traces/hdr.m2in, recorded
+# once with M2TRACE_RECORD_INPUT). The trace is deleted after the check.
 set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-FRAMES="${1:-600}"
+NAME="${1:-attract}"
 cd "$ROOT"
 [ -f build/rom_cache/daytona93/program.bin ] || python3 scripts/m2import.py roms/daytona93.zip build/rom_cache/daytona93
-M2TRACE_FRAMES="$FRAMES" M2TRACE_IRQLOG="$ROOT/traces/m2check.irq" ./scripts/run_trace.sh traces/m2check >/dev/null 2>&1
-./build/m2replay build/rom_cache/daytona93 traces/m2check/trace.m2tr traces/m2check.irq
-[ -x build/m2native ] && ./build/m2native build/rom_cache/daytona93 traces/m2check/trace.m2tr traces/m2check.irq
+OUT="traces/check_$NAME"
+if [ "$NAME" = attract ]; then
+    M2TRACE_FRAMES=600 M2TRACE_IRQLOG="$ROOT/$OUT.irq" ./scripts/run_trace.sh "$OUT" >/dev/null 2>&1
+else
+    python3 scripts/make_input.py traces/hdr.m2in "scripts/inputs/$NAME.txt" "$OUT.m2in"
+    FRAMES="$(awk '/^frames/{print $2}' "scripts/inputs/$NAME.txt")"
+    M2TRACE_FRAMES="$FRAMES" M2TRACE_REPLAY_INPUT="$OUT.m2in" M2TRACE_IRQLOG="$ROOT/$OUT.irq" \
+        ./scripts/run_trace.sh "$OUT" >/dev/null 2>&1
+fi
+STATUS=0
+[ -x build/m2native ] && { ./build/m2native build/rom_cache/daytona93 "$OUT/trace.m2tr" "$OUT.irq" || STATUS=1; }
+[ -n "${M2_CHECK_REPLAY:-}" ] || [ "$NAME" = attract ] && { ./build/m2replay build/rom_cache/daytona93 "$OUT/trace.m2tr" "$OUT.irq" || STATUS=1; }
+rm -f "$OUT/trace.m2tr"
+exit $STATUS

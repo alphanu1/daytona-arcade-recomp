@@ -12,6 +12,24 @@ instructions/s with lockstep checks on every instruction).
 build/gen); `scripts/m2_check.sh` traces MAME and runs both harnesses.
 An address with no recompiled code is a hard error naming it.
 
+Beyond attract, the same native code matches MAME through seven scripted
+scenarios (coin up, selects, races, test mode), every instruction, device
+access and interrupt, including the sound-UART interrupts that land mid-code
+during races:
+
+| scenario | frames | instructions | device events | interrupts |
+| --- | --- | --- | --- | --- |
+| race_steer_left | 6,000 | 643,000,979 | 39,750,589 | 11,443 |
+| course_advanced | 6,000 | 640,678,236 | 42,356,938 | 12,475 |
+| course_expert | 6,000 | 641,018,396 | 42,010,671 | 12,419 |
+| time_attack | 6,000 | 663,975,129 | 20,342,792 | 11,506 |
+| test_mode | 4,000 | 439,587,066 | 6,954,614 | 4,051 |
+| test_tgp | 3,500 | 385,086,539 | 6,708,822 | 3,578 |
+| test_memory | 3,500 | 385,423,629 | 6,748,842 | 3,553 |
+
+`scripts/m2_check.sh SCENARIO` reruns one (inputs from
+`scripts/inputs/SCENARIO.txt`); each takes ~7 min of MAME plus ~15 s native.
+
 The reference interpreter (`src/refcore`, MAME's executor) is a test
 oracle only: `m2replay` uses it; the game build will never link it.
 
