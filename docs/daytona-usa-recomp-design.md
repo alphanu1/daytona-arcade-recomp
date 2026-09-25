@@ -327,7 +327,7 @@ The critical path is i960 parity, then TGP parity; rendering and polish can proc
 
 - [ ] Which ROM revision(s) to support first (Japan, export, Special Edition / Hornet)?
 - [ ] Does Daytona copy or patch any i960 code in RAM at runtime?
-- [ ] Lockstep with the sound UART interrupt: it fires mid-code during races (measured). Options: (a) the shipped build takes it at safe points and lockstep tests replay MAME's exact delivery points in a test-only harness; (b) accept UART-induced divergence and compare only state the UART handler does not touch; (c) a cycle model, which the design rules out for the shipped path.
+- [x] Lockstep with the sound UART interrupt (fires mid-code during races): **(a)**, decided. The shipped build takes it at safe points at native speed; lockstep tests replay MAME's exact delivery points, keyed by MAME's completed-instruction count, in a test-only harness.
 - [ ] Which third-party i960 SLEIGH module to use for Ghidra, if any (mainline has none), and is its licence compatible?
 - [ ] Is Daytona entirely interrupt-driven? Static reach from the boot record finds 89 instructions ending in a `b .` idle loop; the MAME harvest shows the vblank handler at 0x0e00 taken 576 times in 600 frames. Seeded with the 107 harvested targets, static reach grows to 13,081 instructions. Consistent with interrupt-driven; confirm by where time is spent.
 - [x] Does MAME run the `daytona` TGP at low level or with HLE handlers? **Low level**: the MB86234 core executes the microcode the i960 uploads. Its accuracy against the PCB is still unmeasured.

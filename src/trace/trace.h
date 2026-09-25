@@ -18,7 +18,9 @@ uint64_t hash_words(const uint32_t *words, size_t count, uint64_t h = kHashInit)
 // Bytes are read as little-endian words; `bytes` must be a multiple of 4.
 uint64_t hash_bytes(const uint8_t *bytes, size_t len, uint64_t h = kHashInit);
 
-enum class RecordType : uint8_t { Sample = 0x01, Write = 0x10, Read = 0x11, Note = 0x20 };
+enum class RecordType : uint8_t {
+    Sample = 0x01, Write = 0x10, Read = 0x11, ReadStalled = 0x12, WriteStalled = 0x13, Note = 0x20
+};
 
 constexpr int kNumRegs = 36;
 // Names for Sample::regs, in order.
@@ -41,6 +43,7 @@ struct Sample {
 struct Access {
     bool write = true;
     uint32_t addr = 0, data = 0, mask = 0;
+    bool stalled = false; // the i960 stalled on it and repeated it later (MAME only)
     bool operator==(const Access &) const = default;
 };
 
@@ -100,6 +103,7 @@ struct CompareOptions {
     bool compare_ip = false;    // ip is post-increment in MAME samples
     bool compare_frame = false; // our build has no MAME screen frame number
     uint64_t skip_regs = 0;     // bit i set: ignore regs[i]
+    bool skip_stalled = true;   // drop stalled accesses before comparing (a native build never stalls)
 };
 
 struct Divergence {

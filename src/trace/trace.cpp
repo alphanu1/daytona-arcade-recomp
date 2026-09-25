@@ -123,7 +123,9 @@ void Writer::access(const Access &a) {
     put32(p, a.addr);
     put32(p, a.data);
     put32(p, a.mask);
-    record(a.write ? RecordType::Write : RecordType::Read, p);
+    record(a.stalled ? (a.write ? RecordType::WriteStalled : RecordType::ReadStalled)
+                     : (a.write ? RecordType::Write : RecordType::Read),
+           p);
 }
 
 void Writer::note(const std::string &text) {
@@ -205,9 +207,12 @@ bool Reader::next(Epoch &out) {
         any = true;
         switch (type) {
         case RecordType::Write:
-        case RecordType::Read: {
+        case RecordType::Read:
+        case RecordType::WriteStalled:
+        case RecordType::ReadStalled: {
             Access a;
-            a.write = type == RecordType::Write;
+            a.write = type == RecordType::Write || type == RecordType::WriteStalled;
+            a.stalled = type == RecordType::WriteStalled || type == RecordType::ReadStalled;
             a.addr = c.u32();
             a.data = c.u32();
             a.mask = c.u32();
@@ -254,14 +259,29 @@ namespace {
 
 std::string access_str(const Access &a) {
     char buf[96];
-    std::snprintf(buf, sizeof buf, "%s %08x = %08x (mask %08x)", a.write ? "W" : "R", a.addr, a.data,
-                  a.mask);
+    std::snprintf(buf, sizeof buf, "%s%s %08x = %08x (mask %08x)", a.write ? "W" : "R", a.stalled ? " stalled" : "",
+                  a.addr, a.data, a.mask);
     return buf;
 }
 
 } // namespace
 
-Divergence compare(const Epoch &a, const Epoch &b, uint64_t ei, const CompareOptions &opt) {
+Divergence compare(const Epoch &a_in, const Epoch &b_in, uint64_t ei, const CompareOptions &opt) {
+    Epoch fa, fb;
+    const Epoch *pa = &a_in, *pb = &b_in;
+    if (opt.skip_stalled) {
+        auto strip = [](const Epoch &e, Epoch &out) {
+            out.sample = e.sample;
+            out.notes = e.notes;
+            for (const Access &x : e.events)
+                if (!x.stalled) out.events.push_back(x);
+        };
+        strip(a_in, fa);
+        strip(b_in, fb);
+        pa = &fa;
+        pb = &fb;
+    }
+    const Epoch &a = *pa, &b = *pb;
     Divergence d;
     d.epoch = ei;
     char buf[256];

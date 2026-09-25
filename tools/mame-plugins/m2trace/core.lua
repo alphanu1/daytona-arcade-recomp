@@ -48,9 +48,18 @@ local function record(rtype, payload)
 end
 
 core.REC_SAMPLE, core.REC_WRITE, core.REC_READ, core.REC_NOTE = 0x01, 0x10, 0x11, 0x20
+core.REC_READ_STALLED, core.REC_WRITE_STALLED = 0x12, 0x13
 
-function core.rec_access(is_write, addr, data, mask)
-	return record(is_write and core.REC_WRITE or core.REC_READ,
+-- stalled: the access made the i960 stall (TGP FIFO empty/full); MAME rewinds
+-- the instruction and repeats the access later, so this one did not complete.
+function core.rec_access(is_write, addr, data, mask, stalled)
+	local t
+	if stalled then
+		t = is_write and core.REC_WRITE_STALLED or core.REC_READ_STALLED
+	else
+		t = is_write and core.REC_WRITE or core.REC_READ
+	end
+	return record(t,
 		string.pack("<I4I4I4", addr & 0xffffffff, data & 0xffffffff, mask & 0xffffffff))
 end
 

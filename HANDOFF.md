@@ -56,8 +56,9 @@ M0 tooling (design doc, Milestones):
 2. M0 exit review against the design doc, then M1 (boot) per the milestone
    order.
 3. M1 (step 2 of the user's order; step 1, FP, is done). Plan in the design
-   doc (M1 plan). Needs the user's call on UART-interrupt lockstep first
-   (Open decisions): the M1 attract tier is barely affected, races are.
+   doc (M1 plan); UART interrupts decided: option (a). Groundwork done
+   (below); next is the runtime core + interpreter, validated by replaying
+   traces/m1A (trace + IRQ log) from `build/rom_cache/daytona93`.
 
 ## Open decisions
 
@@ -67,9 +68,6 @@ M0 tooling (design doc, Milestones):
   ties (see Findings). When a replay diverges there, the trace diff will show
   MAME's value; the recompiled build follows the model (rules: PCB > MAME).
   Settling which the PCB does needs a hardware measurement.
-- UART interrupt lockstep: vblank lands in idle loops (~99%), but in races
-  ~4,300 of 10,795 interrupts are the sound UART taken mid-code where MAME's
-  cycle estimate puts them. Options in the design doc's Open questions.
 - `addc` carry. MAME never sets it. Recompile to the silicon and flag the diff
   when it fires (the MiSTer core made the same call, its study §2.3).
 
@@ -218,6 +216,22 @@ FP, step 1 (`src/i960/fp`, `tests/test_fp`, `tests/fp_vs_mame`):
   trace diff will show it as a register/RAM divergence right after a cvtri.
 - MAME never sets FP exception flags in AC; the model reports them. Where the
   i960 records them and whether Daytona reads them is unconfirmed.
+
+M1 groundwork:
+
+- UART-interrupt lockstep: option (a) chosen (safe points in the shipped
+  build; a test harness replays MAME's delivery points).
+- Delivery points are keyed by MAME's completed-instruction count (patch):
+  a stalled FIFO op counts once. Attract, 600 frames: 70,926,456
+  instructions, 1,882 interrupt events (1,254 line changes, 622 immediate
+  takes, 5 pending-table takes). Two runs: identical IRQ logs and traces.
+- Stalled accesses: MAME's `i960_stall()` rewinds IP to PIP, so the plugin
+  marks an access with ip == pip as stalled (new record types 0x12/0x13);
+  comparisons drop them by default.
+- Read taps now cover every non-RAM range the i960 reads (irq, timers, geo,
+  copro status to 0x3f, comm, renderer), so the harness can answer them all.
+- `scripts/m2import.py` builds program.bin and main_data.bin from the user's
+  zip (CRC-checked, MAME's layout) into git-ignored build/rom_cache.
 
 Real program image (`daytona93`, epr-16530a/16531a, counts only):
 

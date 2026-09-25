@@ -58,6 +58,8 @@ for i, name in ipairs({ "pfp","sp","rip","r3","r4","r5","r6","r7","r8","r9","r10
                         "pc","ac","ip" }) do
   state[name] = { value = i * 16 }
 end
+state["pip"] = { value = 0 }  -- differs from ip except when an access stalls
+function M.stall(on) state["pip"].value = on and state["ip"].value or 0 end
 
 -- I/O ports: fields hold a current state; read() composes the port value.
 local function mkfield(mask, def, analog, class)
@@ -210,6 +212,35 @@ def main():
     r = subprocess.run([tracediff, t1, t2], capture_output=True, text=True)
     check(r.returncode == 1 and "DIVERGED at epoch 1" in r.stdout and "region 00200000" in r.stdout,
           "memory change detected at epoch 1\n" + r.stdout)
+
+    # A stalled access (ip == pip, as MAME's i960_stall leaves it) is recorded
+    # as stalled and ignored by default when comparing.
+    lua = lupa.LuaRuntime(encoding=None)
+    lua.execute(f'package.path = "{PLUGINS}/?.lua;{PLUGINS}/?/init.lua"'.encode())
+    Ms = lua.execute(MOCK.encode())
+    Ms.env[b"M2TRACE_OUT"] = t2.encode()
+    lua.eval(b'(require("m2trace"))').startplugin()
+    Ms.reset()
+    Ms.stall(True)
+    Ms.read(0x00884000, 0, 0xFFFFFFFF)          # stalled pop
+    Ms.stall(False)
+    Ms.read(0x00884000, 0x1234, 0xFFFFFFFF)     # the real one
+    Ms.write(0x00E80000, 0xFFFFFFFE, 0xFFFFFFFF)
+    Ms.stop()
+    blob = open(t2, "rb").read()
+    check(b"\x12\x0c\x00\x00\x00\x00\x40\x88\x00" in blob, "stalled read written as record type 0x12")
+    ref = os.path.join(scratch, "nostall.m2tr")
+    Mn_lua = lupa.LuaRuntime(encoding=None)
+    Mn_lua.execute(f'package.path = "{PLUGINS}/?.lua;{PLUGINS}/?/init.lua"'.encode())
+    Mn = Mn_lua.execute(MOCK.encode())
+    Mn.env[b"M2TRACE_OUT"] = ref.encode()
+    Mn_lua.eval(b'(require("m2trace"))').startplugin()
+    Mn.reset()
+    Mn.read(0x00884000, 0x1234, 0xFFFFFFFF)
+    Mn.write(0x00E80000, 0xFFFFFFFE, 0xFFFFFFFF)
+    Mn.stop()
+    r = subprocess.run([tracediff, t2, ref], capture_output=True, text=True)
+    check(r.returncode == 0, "stalled access ignored when comparing\n" + r.stdout)
 
     # A second reset mid-run leaves a note in the trace.
     lua = lupa.LuaRuntime(encoding=None)

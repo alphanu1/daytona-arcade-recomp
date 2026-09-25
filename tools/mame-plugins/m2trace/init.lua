@@ -47,11 +47,19 @@ local WRITE_TAPS = {
 	{ 0x01c00000, 0x01c00fff, "dpram" },
 	{ 0x01c80000, 0x01c80003, "uart" },
 }
+-- Every device the i960 reads, so a harness can answer them from the trace
+-- (M1: devices replayed). RAM and ROM are not tapped; their contents are
+-- covered by the region hashes.
 local READ_TAPS = {
-	{ 0x00884000, 0x00887fff, "copro_fifo" },
-	{ 0x00980000, 0x0098000f, "copro_ctl" },
+	{ 0x00800000, 0x00807fff, "geo" },
+	{ 0x00880000, 0x00887fff, "copro_fifo" },
+	{ 0x00980000, 0x0098003f, "copro_ctl" },
+	{ 0x00e80000, 0x00e80007, "irq" },
+	{ 0x00f00000, 0x00f0000f, "timers" },
+	{ 0x01a00000, 0x01a1ffff, "comm" },
 	{ 0x01c00000, 0x01c00fff, "dpram" },
 	{ 0x01c80000, 0x01c80003, "uart" },
+	{ 0x10000000, 0x105fffff, "render" },
 }
 local IRQ_ACK = 0x00e80000
 local INPUT_PORTS = { ":IN0", ":IN1", ":GEARS", ":STEER", ":ACCEL", ":BRAKE" }
@@ -134,12 +142,20 @@ local function take_sample()
 	end
 end
 
+-- MAME's i960_stall() rewinds IP to PIP, so inside a tap an access that
+-- stalled the CPU is the one where ip == pip.
+local function stalled()
+	local st = cpu.state
+	return st["ip"].value == st["pip"].value
+end
+
 local function install_taps()
 	for _, t in ipairs(WRITE_TAPS) do
 		taps[#taps + 1] = space:install_write_tap(t[1], t[2], "m2trace_w_" .. t[3],
 			function(offset, data, mask)
-				out:write(core.rec_access(true, offset, data, mask))
-				if cfg.trigger == "vblank-ack" and offset == IRQ_ACK
+				local st = stalled()
+				out:write(core.rec_access(true, offset, data, mask, st))
+				if not st and cfg.trigger == "vblank-ack" and offset == IRQ_ACK
 						and (mask & 1) ~= 0 and (data & 1) == 0 then
 					take_sample()
 				end
@@ -148,7 +164,7 @@ local function install_taps()
 	for _, t in ipairs(READ_TAPS) do
 		taps[#taps + 1] = space:install_read_tap(t[1], t[2], "m2trace_r_" .. t[3],
 			function(offset, data, mask)
-				out:write(core.rec_access(false, offset, data, mask))
+				out:write(core.rec_access(false, offset, data, mask, stalled()))
 			end)
 	end
 end

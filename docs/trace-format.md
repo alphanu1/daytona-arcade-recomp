@@ -60,7 +60,11 @@ records, until end of file:
 | 0x01 | SAMPLE | `u32 epoch`, `u64 frame`, `u8 nregions`, then per region `u32 base`, `u32 bytes`, `u64 hash`; then `u32 regs[36]`: r0-r15, g0-g15, pc, ac, ip, tc (tc is 0 from MAME, which has no state entry for it) |
 | 0x10 | WRITE | `u32 addr`, `u32 data`, `u32 mem_mask` |
 | 0x11 | READ | `u32 addr`, `u32 data`, `u32 mem_mask` |
+| 0x12 | READ_STALLED | as READ; the access stalled the i960 (TGP FIFO empty), which MAME rewinds and repeats, so it did not complete |
+| 0x13 | WRITE_STALLED | as WRITE, for a stall on a full FIFO |
 | 0x20 | NOTE | UTF-8 text (reset, state load, anything that breaks the epoch chain) |
+
+A stalled access is detected in the tap as `ip == pip`: MAME's `i960_stall()` rewinds IP to the instruction's start. Comparisons drop stalled accesses by default, since a native build never stalls.
 
 Unknown record types are skipped by length, so the format can grow without
 breaking old readers. The epoch field counts samples from 0; `frame` is the
@@ -74,15 +78,19 @@ does is covered by the RAM hashes.
 
 | Range | What | Direction |
 | --- | --- | --- |
-| 0x00800000-0x00803fff | geometrizer registers | W |
-| 0x00804000-0x00807fff | geometrizer program upload | W |
-| 0x00880000-0x00883fff | TGP function port | W |
+| 0x00800000-0x00803fff | geometrizer registers | W, R |
+| 0x00804000-0x00807fff | geometrizer program upload | W, R |
+| 0x00880000-0x00883fff | TGP function port | W, R |
 | 0x00884000-0x00887fff | TGP FIFO (program upload and data in; results out) | W, R |
-| 0x00980000-0x0098000f | copro control, FIFO status, video control | W, R |
-| 0x00e80000-0x00e80007 | IRQ request/ack and enable | W |
-| 0x00f00000-0x00f0000f | timers | W |
+| 0x00980000-0x0098003f | copro control, FIFO status, video control, TGP id (reads to 0x3f) | W, R |
+| 0x00e80000-0x00e80007 | IRQ request/ack and enable | W, R |
+| 0x00f00000-0x00f0000f | timers | W, R |
+| 0x01a00000-0x01a1ffff | comm board shared RAM and flags | R |
 | 0x01c00000-0x01c00fff | I/O board dual-port RAM (inputs, drive board, lamps) | W, R |
 | 0x01c80000-0x01c80003 | sound UART | W, R |
+| 0x10000000-0x105fffff | renderer mode and polygon count registers | R |
+
+Every non-RAM range the i960 reads is tapped, so a harness can answer device reads from the trace (M1).
 
 Reads of the TGP FIFO are what the game consumes from the TGP; they are the
 values that must be bit-identical (rules.md, standing rules).
