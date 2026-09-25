@@ -50,6 +50,7 @@ target_include_directories(trace PUBLIC src)
 add_library(runtime STATIC
     src/runtime/i960_core.cpp
     src/runtime/m2_replay_bus.cpp
+    src/runtime/lockstep.cpp
 )
 target_include_directories(runtime PUBLIC src)
 target_link_libraries(runtime PUBLIC trace i960)
@@ -58,8 +59,24 @@ if(NOT MSVC)
     set_source_files_properties(src/runtime/i960_core.cpp PROPERTIES COMPILE_OPTIONS "-Wno-unused-parameter;-Wno-sign-compare")
 endif()
 
-add_executable(m1replay tools/m1replay/main.cpp)
-target_link_libraries(m1replay PRIVATE runtime)
+add_executable(m2replay tools/m2replay/main.cpp)
+target_link_libraries(m2replay PRIVATE runtime)
+
+# The recompiler (ours; committed) and, when it has been run, its output.
+add_executable(m2recomp tools/m2recomp/main.cpp)
+target_link_libraries(m2recomp PRIVATE i960)
+
+# Recompiled game code lives in build/gen/<set>/ (derived from the game: never
+# committed). scripts/recompile.sh generates it and re-runs CMake.
+set(GEN_DIR ${CMAKE_BINARY_DIR}/gen/daytona93)
+if(EXISTS ${GEN_DIR}/gen_table.cpp)
+    file(GLOB GEN_SOURCES ${GEN_DIR}/*.cpp)
+    add_executable(m2native tools/m2native/main.cpp ${GEN_SOURCES})
+    target_link_libraries(m2native PRIVATE runtime)
+    if(NOT MSVC)
+        set_source_files_properties(${GEN_SOURCES} PROPERTIES COMPILE_OPTIONS "-Wno-unused-label")
+    endif()
+endif()
 
 add_executable(i960dis tools/i960dis/main.cpp)
 target_link_libraries(i960dis PRIVATE i960)

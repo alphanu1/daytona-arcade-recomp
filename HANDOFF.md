@@ -2,12 +2,24 @@
 
 ## Current state
 
-**M1 interpreter milestone met**: `m1replay` runs Daytona's own code through
+**M1 met with native code**: `m2recomp` statically recompiles 23,262
+instructions (seeds: boot record + `seeds/daytona93.txt`) to portable C++,
+and `m2native` runs them with no interpreter and no fallback. It matches
+MAME for all 600 attract frames: 70,926,456 instructions, every one native,
+1,153 samples, 3,315,201 device events, 627 interrupts; 1.3 s (55 M
+instructions/s with lockstep checks on every instruction).
+`scripts/recompile.sh` generates and builds it (into git-ignored
+build/gen); `scripts/m2_check.sh` traces MAME and runs both harnesses.
+An address with no recompiled code is a hard error naming it.
+
+The reference core (`src/runtime/i960_core`, MAME's semantics) is a test
+oracle only: `m2replay` uses it; the game build will never link it.
+
+Earlier, **M1 reference milestone**: `m2replay` runs Daytona's own code through
 the runtime (MAME's i960 semantics, transplanted) with devices replayed from a
 MAME trace, and matches MAME for all 600 attract frames: 70,926,456
 instructions, 1,153 samples (RAM hashes + registers), 3,315,201 device
-events, 627 interrupts; 2.0 s. `scripts/m1_check.sh` reproduces it.
-Next: the recompiler (M1 step 4).
+events, 627 interrupts; 2.0 s.
 
 M0 tooling runs against real MAME with the real game (`daytona93`, user's ROM
 set, git-ignored `roms/` in this cloud container, never committed). Model-2-only
@@ -62,10 +74,12 @@ M0 tooling (design doc, Milestones):
    only, no game data), then replaying it here.
 2. M0 exit review against the design doc, then M1 (boot) per the milestone
    order.
-3. M1 step 4, the recompiler: per-procedure C++ from `reach` (boot record +
-   harvest seeds), calling the same `I960Core` semantics; exit when generated
-   code reproduces the same 600-frame MATCH and the interpreter-hit log is
-   empty or explained. Then races (UART interrupts mid-code, option (a)).
+3. Shipped native build (M1 step 5): interrupts at safe points (backward
+   branches, calls, returns) instead of a check per instruction, RAM read
+   and written inline instead of through the virtual bus, reference core not
+   linked. Targets: x86-64 and ARM64 on Windows, Linux, macOS, Android and
+   Raspberry Pi; the generated C++ is portable, no host assembly.
+4. Races (UART interrupts mid-code, option (a)), then M2 (TGP HLE).
 
 ## Open decisions
 
@@ -240,7 +254,7 @@ M1 groundwork:
 - `scripts/m2import.py` builds program.bin and main_data.bin from the user's
   zip (CRC-checked, MAME's layout) into git-ignored build/rom_cache.
 
-M1 interpreter (`src/runtime`, `tools/m1replay`):
+M1 reference core (`src/runtime`, `tools/m2replay`, test only):
 
 - Semantics: MAME's `i960.cpp` transplanted (BSD-3, notice kept); runs at
   36 M instructions/s interpreted.
@@ -257,7 +271,7 @@ M1 interpreter (`src/runtime`, `tools/m1replay`):
   treated as a device: the i960's accesses are recorded and replayed, and
   its hash is left to M2; (5) the plugin's own `read_range` fired the
   buffer-RAM read taps while hashing; taps are now suppressed while sampling.
-- A per-instruction log on both sides (`M2TRACE_PCLOG`, `M1REPLAY_PCLOG`:
+- A per-instruction log on both sides (`M2TRACE_PCLOG`, `M2REPLAY_PCLOG`:
   count, PIP, AC, register-file hash) located bug (2) at instruction 109.
 - Mutation check: addo off by one when src1 == 1 (fired 129 times) diverges
   at epoch 3; one program-ROM byte flipped (copied to RAM at boot) diverges at
@@ -321,3 +335,17 @@ Also found:
   only; semantics come from the executor.
 - A TGP microcode ROM dump. The program is uploaded at boot from the game's
   data ROM; dump TGP program RAM only after the upload, or it is zeros.
+
+M1 native (`tools/m2recomp`, `tools/m2native`, `src/runtime/lockstep`):
+
+- One label per instruction; operands, branch targets and FP fast paths
+  resolved at recompile time; `goto` for direct transfers, a dispatch switch
+  for indirect ones. Unknown instructions or FP operand forms stop the
+  recompile (exit 1), so nothing is left to run at runtime.
+- Lockstep (`src/runtime/lockstep`) applies MAME's interrupt lines and takes
+  at the same completed-instruction counts; shared by both harnesses.
+- **IAC 0x93 (reinitialise) is an indirect transfer**: boot reinitialises to
+  0x924 through `synmovq`. The first native run stopped there (no code); the
+  harvest patch now logs IAC targets and the seeds include it.
+- Mutation check: the generator's addo template off by one when src1 == 1
+  diverges at epoch 3.

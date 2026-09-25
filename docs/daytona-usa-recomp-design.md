@@ -8,7 +8,7 @@ We statically recompile the i960 game code of Daytona USA (Sega Model 2, 1994) i
 
 **Goals**
 
-- Native x86-64 and ARM64 executables on Windows, macOS (Apple Silicon + Intel) and Linux, from one codebase.
+- Native x86-64 and ARM64 executables on Windows, macOS (Apple Silicon + Intel), Linux, Android and Raspberry Pi (64-bit Pi OS), from one codebase.
 - Frame-exact gameplay parity with the arcade: timing, physics, AI, attract mode, all three courses, all cars.
 - User-supplied ROMs only. The repo ships the recompiler, runtime and a ROM-to-build pipeline, never Sega code or assets.
 - Modern presentation as opt-in: native resolution, widescreen, higher internal refresh for rendering, filtered textures.
@@ -83,7 +83,7 @@ The recompiler runs at build time on the user's machine, so no generated Sega co
 
 **Memory bus.** Main RAM, work RAM and shared RAM are flat host arrays accessed inline. MMIO ranges (TGP FIFO, geometrizer, tilemap RAM, palette, I/O dual-port RAM, sound UART, comm RAM) go through a page-table of handlers, resolved at compile time where the address is constant.
 
-**Fallback interpreter.** A small i960 interpreter runs any code the recompiler did not reach (unexpected indirect targets, self-test paths). Every fallback hit is logged with its address so the next recompile can include it.
+**No fallback.** Every instruction the game runs is statically recompiled to native code. There is no interpreter in the shipped build. A jump to an address with no recompiled code is a hard error that names the address; the fix is to add it to `seeds/daytona93.txt` and recompile. The reference i960 core in `src/runtime/i960_core` exists only for the test harness (`m2replay`) and is never linked into the game.
 
 ## i960 static recompiler
 
@@ -96,11 +96,11 @@ The recompiler turns the program ROM into one C++ function per i960 procedure, p
 3. Recursive-descent disassembly over the four formats (REG, COBR, CTRL, MEM). Follow `call`, `callx`, `bal`, `balx`, branches and compare-and-branch.
 4. Resolve indirect targets: pattern-match jump tables (`ld` from a scaled index then `bx`/`callx`), and merge in targets observed by the MAME tracer (see Reference & validation).
 5. Build a CFG per procedure, then emit C++ with one label per basic block and `goto` edges.
-6. Emit a dispatch table (address → function pointer) for all indirect calls; misses go to the fallback interpreter.
+6. Emit a dispatch table (address → function pointer) for all indirect calls; a miss is a hard error naming the address (no fallback).
 
 **Decoder** (`src/i960`, shared by `i960dis` and the recompiler)
 
-- Decoding follows MAME's *executor* (`i960.cpp`), not its disassembler: the executor is the behavioural oracle. The accepted set is exactly what the executor implements: 62 CTRL/COBR/MEM opcodes and 102 REG opcodes. Anything else MAME's disassembler knows (Cx/Hx/Jx additions, `cmpibno`, `cmpibo`, `atadd`, `bswap`, ...) decodes but is marked not executable and goes to the fallback, logged. `0x6e1` is decoded as `movre`, as MAME executes it; it is undocumented.
+- Decoding follows MAME's *executor* (`i960.cpp`), not its disassembler: the executor is the behavioural oracle. The accepted set is exactly what the executor implements: 62 CTRL/COBR/MEM opcodes and 102 REG opcodes. Anything else MAME's disassembler knows (Cx/Hx/Jx additions, `cmpibno`, `cmpibo`, `atadd`, `bswap`, ...) decodes but is marked not executable; the recompiler refuses it. `0x6e1` is decoded as `movre`, as MAME executes it; it is undocumented.
 - Text output reproduces MAME's disassembler syntax exactly, so the two can be diffed as strings (`tests/mame_oracle.cpp` compiles MAME's `i960dis.cpp` unmodified against a small shim).
 - Three encodings are read differently by MAME's executor and disassembler. The decoder follows the executor and flags each one (`Insn::quirks`); hardware behaviour for all three is unconfirmed, and any occurrence in Daytona's code is a finding:
   - CTRL/COBR bits 1:0 set: the executor adds them to the branch target (`sext(opcode, 24) - 4`); the disassembler masks them.
@@ -150,7 +150,7 @@ The KB's FPU works in 80-bit extended precision, which ARM64 hosts lack. Any FP 
 
 **Code outside ROM**
 
-If the game copies routines into RAM or patches code, the tracer will show execution from RAM. Those regions are recompiled from a RAM snapshot taken after the copy and checked by hash at runtime; a mismatch falls back to the interpreter.
+If the game copies routines into RAM or patches code, the tracer will show execution from RAM. Those regions are recompiled from a RAM snapshot taken after the copy and checked by hash at runtime; a mismatch is a hard error.
 
 ## Geometry (TGP) and rendering
 
@@ -261,6 +261,10 @@ One CMake project, C++20, SDL3 for window, input, haptics, audio and GPU, so pla
 | Windows 10/11 | x86-64, ARM64 | Vulkan or D3D12 | MSVC or clang-cl | Zip with exe |
 | macOS 12+ | ARM64, x86-64 | Metal | Apple clang | Signed, notarised .app (universal) |
 | Linux | x86-64, ARM64 | Vulkan | GCC or clang | AppImage + Flatpak |
+| Android 10+ | ARM64 (x86-64 for emulators) | Vulkan | NDK clang | APK; generated code built by the desktop importer, or on device, then loaded (decision pending) |
+| Raspberry Pi 4/5 | ARM64 (64-bit Pi OS) | Vulkan (V3DV) | GCC or clang | Linux ARM64 build |
+
+The generated code is plain portable C++20 (no host assembly, no JIT), so the same output compiles for every row above.
 
 **ROM handling**
 
@@ -272,7 +276,7 @@ One CMake project, C++20, SDL3 for window, input, haptics, audio and GPU, so pla
 
 - Settings UI (Dear ImGui overlay): controls, enhancements, audio, link peers, DIP-switch equivalents.
 - Save states for debugging only, built from the context struct plus RAM; not a player feature in v1.
-- Crash reports include the last guest PC and fallback-interpreter hits.
+- Crash reports include the last guest PC and any address that had no recompiled code.
 
 ## M1 plan: boot to attract, i960 parity only
 
@@ -294,9 +298,10 @@ vblank (vector 0x0c) lands in an idle loop ~99% of the time, so clockless safe-p
 **Order of work.**
 
 1. Runtime core: context (g/l registers, AC, PC, TC, IP, register cache), bus (flat RAM arrays for ROM, RAM 0x00200000, work RAM, buffer RAM, backup SRAM; page table for MMIO), trace-replay device, interrupt controller (request/enable registers, ICR, pending table as MAME keeps it).
-2. Instruction semantics as inline C++ functions, one per opcode in MAME's executable set, shared by the fallback interpreter and the generated code, so there is one definition of each instruction. FP through `src/i960/fp` fast paths.
-3. Fallback interpreter over those semantics. First target: interpreter alone reaches attract with RAM hashes matching MAME for 600 frames. This proves the runtime, the replay and the semantics before any code generation. **Met**: `tools/m1replay` matches all 600 frames (70,926,456 instructions, 1,153 samples, 3,315,201 device events, 627 interrupts). Semantics are MAME's `i960.cpp`, transplanted (BSD-3). Two findings shaped the bus: MAME's multi-word loads and stores advance the address only on regions flagged `BURST` (so a FIFO is popped repeatedly), and buffer RAM is also written by the geometrizer and the TGP, so M1 replays the i960's accesses to it and leaves its hash to M2.
-4. Recompiler: per-procedure C++ from `reach` (seeds: boot record + MAME harvest), one label per basic block, dispatch table for indirect targets, misses to the interpreter (logged). Exit: generated code reaches attract with matching hashes for 600 frames, and the interpreter-hit log is empty or explained.
+2. Instruction semantics as inline C++ functions, one per opcode in MAME's executable set, shared by the reference core (test harness only) and the generated code, so there is one definition of each instruction. FP through `src/i960/fp` fast paths.
+3. Reference core over those semantics (test harness only, never shipped). First target: interpreter alone reaches attract with RAM hashes matching MAME for 600 frames. This proves the runtime, the replay and the semantics before any code generation. **Met**: `tools/m2replay` matches all 600 frames (70,926,456 instructions, 1,153 samples, 3,315,201 device events, 627 interrupts). Semantics are MAME's `i960.cpp`, transplanted (BSD-3). Two findings shaped the bus: MAME's multi-word loads and stores advance the address only on regions flagged `BURST` (so a FIFO is popped repeatedly), and buffer RAM is also written by the geometrizer and the TGP, so M1 replays the i960's accesses to it and leaves its hash to M2.
+4. Recompiler: C++ from `reach` (seeds: boot record + MAME harvest in `seeds/daytona93.txt`), one label per instruction, a dispatch switch for indirect targets, no fallback. Exit: generated code reaches attract with matching hashes for 600 frames, all native. **Met**: `tools/m2native` runs 23,262 recompiled instructions and matches all 600 frames (70,926,456 instructions, every one native, 1,153 samples, 3,315,201 device events, 627 interrupts) in 1.3 s with lockstep checks on. Finding: IAC 0x93 (reinitialise) is an indirect transfer (to 0x924 at boot); the harvest patch now logs it.
+5. Shipped build: interrupts at safe points instead of a check per instruction, RAM accessed inline instead of through the virtual bus, no reference core linked.
 
 ## Milestones, risks, open questions
 
@@ -317,7 +322,7 @@ The critical path is i960 parity, then TGP parity; rendering and polish can proc
 | Risk | Impact | Mitigation |
 | --- | --- | --- |
 | Extended-precision FP mismatch | Replay desync, AI/physics drift | SoftFloat extF80 everywhere first; optimise later with proof. Measured: reachable i960 FP is only cvtri/cmpr/cvtir/scaler/cvtzri (108 instructions); no FP arithmetic. Risk much lower than assumed, pending full coverage |
-| Indirect branches missed statically | Crashes, fallback slowdown | MAME-harvested targets + interpreter fallback with logging |
+| Indirect branches missed statically | Hard error naming the address | MAME-harvested targets in `seeds/daytona93.txt`; 21 of 68 indirect sites still unharvested (circuit select, test mode) |
 | TGP behaviour poorly documented | Wrong geometry, collision | Trace MAME per command; logic-analyse the real bus if needed |
 | Hardware sort order hard to reproduce on GPU | Visual artefacts differ | CPU-side sort replicating hardware keys; z-buffer optional |
 | Interrupt timing differences | Rare hangs, audio drift | Safe-point IRQ checks; cycle-count estimates per block if required |

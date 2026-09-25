@@ -1,8 +1,16 @@
 diff --git a/src/devices/cpu/i960/i960.cpp b/src/devices/cpu/i960/i960.cpp
-index f2a2f23cd4..47e479e9ec 100644
+index f2a2f23cd4..1be7e3fc15 100644
 --- a/src/devices/cpu/i960/i960.cpp
 +++ b/src/devices/cpu/i960/i960.cpp
-@@ -558,6 +558,8 @@ void i960_cpu_device::take_interrupt(int vector, int lvl)
+@@ -158,6 +158,7 @@ void i960_cpu_device::send_iac(uint32_t adr)
+ 		logerror("I960: %x: IAC %08x %08x %08x %08x (continue initialization)\n", m_PIP, iac[0], iac[1], iac[2], iac[3]);
+ 		break;
+ 	case 0x93: // reinit
++		log_branch(BK_IAC, m_PIP, iac[3]); // daytona-arcade-recomp: reinit is an indirect transfer
+ 		m_SAT  = iac[1];
+ 		m_PRCB = iac[2];
+ 		m_IP   = iac[3];
+@@ -558,6 +559,8 @@ void i960_cpu_device::take_interrupt(int vector, int lvl)
  	SP = (SP + 63) & ~63;
  	SP += 64;   // add padding to prevent buffer underflow when saving processor state
  
@@ -11,7 +19,7 @@ index f2a2f23cd4..47e479e9ec 100644
  	do_call(IRQV, 7, SP);
  
  	// save the processor state
-@@ -577,6 +579,8 @@ void i960_cpu_device::check_immediate_irqs()
+@@ -577,6 +580,8 @@ void i960_cpu_device::check_immediate_irqs()
  
  	if ((m_immediate_irq) && ((cpu_pri < m_immediate_pri) || (m_immediate_pri == 31)))
  	{
@@ -20,7 +28,7 @@ index f2a2f23cd4..47e479e9ec 100644
  		take_interrupt(m_immediate_vector, m_immediate_pri);
  		m_immediate_irq = 0;
  	}
-@@ -630,6 +634,8 @@ void i960_cpu_device::check_pending_irqs()
+@@ -630,6 +635,8 @@ void i960_cpu_device::check_pending_irqs()
  
  			take += ((lvl / 4) * 32);
  
@@ -29,7 +37,7 @@ index f2a2f23cd4..47e479e9ec 100644
  			take_interrupt(take, lvl);
  			return;
  		}
-@@ -1464,7 +1470,10 @@ void i960_cpu_device::execute_op(uint32_t opcode)
+@@ -1464,7 +1471,10 @@ void i960_cpu_device::execute_op(uint32_t opcode)
  				t2 = get_2_ri(opcode);
  				// interrupt control register
  				if(t1 == 0xff000004)
@@ -40,7 +48,7 @@ index f2a2f23cd4..47e479e9ec 100644
  				else
  					m_program.write_dword(t1,    m_program.read_dword(t2));
  				m_AC = (m_AC & ~7) | 2;
-@@ -1597,6 +1606,7 @@ void i960_cpu_device::execute_op(uint32_t opcode)
+@@ -1597,6 +1607,7 @@ void i960_cpu_device::execute_op(uint32_t opcode)
  				{
  					fatalerror("I960: system calls that jump into supervisor mode aren't yet supported\n");
  				}
@@ -48,7 +56,7 @@ index f2a2f23cd4..47e479e9ec 100644
  				do_call(t2, 0, m_r[I960_SP]);
  				break;
  
-@@ -2091,6 +2101,7 @@ void i960_cpu_device::execute_op(uint32_t opcode)
+@@ -2091,6 +2102,7 @@ void i960_cpu_device::execute_op(uint32_t opcode)
  		case 0x84: // bx
  			m_icount -= 3;
  			m_IP = get_ea(opcode);
@@ -56,7 +64,7 @@ index f2a2f23cd4..47e479e9ec 100644
  			break;
  
  		case 0x85: // balx
-@@ -2098,10 +2109,12 @@ void i960_cpu_device::execute_op(uint32_t opcode)
+@@ -2098,10 +2110,12 @@ void i960_cpu_device::execute_op(uint32_t opcode)
  			t1 = get_ea(opcode);
  			m_r[(opcode>>19)&0x1f] = m_IP;
  			m_IP = t1;
@@ -69,7 +77,7 @@ index f2a2f23cd4..47e479e9ec 100644
  			do_call(t1, 0, m_r[I960_SP]);
  			break;
  
-@@ -2300,6 +2313,19 @@ void i960_cpu_device::execute_run()
+@@ -2300,6 +2314,19 @@ void i960_cpu_device::execute_run()
  			execute_burst_stall_op(opcode);
  		else
  			execute_op(opcode);
@@ -89,7 +97,7 @@ index f2a2f23cd4..47e479e9ec 100644
  	}
  }
  
-@@ -2309,6 +2335,8 @@ void i960_cpu_device::execute_set_input(int irqline, int state)
+@@ -2309,6 +2336,8 @@ void i960_cpu_device::execute_set_input(int irqline, int state)
  		return;
  
  	m_irq_line_state[irqline] = state;
@@ -98,7 +106,7 @@ index f2a2f23cd4..47e479e9ec 100644
  
  	int int_tab =  m_program.read_dword(m_PRCB+20);    // interrupt table
  	int cpu_pri = (m_PC>>16)&0x1f;
-@@ -2379,6 +2407,20 @@ void i960_cpu_device::execute_set_input(int irqline, int state)
+@@ -2379,6 +2408,20 @@ void i960_cpu_device::execute_set_input(int irqline, int state)
  
  void i960_cpu_device::device_start()
  {
@@ -119,7 +127,7 @@ index f2a2f23cd4..47e479e9ec 100644
  	space(AS_PROGRAM).cache(m_cache);
  	space(AS_PROGRAM).specific(m_program);
  
-@@ -2473,6 +2515,37 @@ void i960_cpu_device::state_string_export(const device_state_entry &entry, std::
+@@ -2473,6 +2516,37 @@ void i960_cpu_device::state_string_export(const device_state_entry &entry, std::
  	}
  }
  
@@ -147,7 +155,7 @@ index f2a2f23cd4..47e479e9ec 100644
 +	FILE *f = fopen(path, "w");
 +	if (!f)
 +		return;
-+	static const char *const kinds[] = { "bx", "balx", "callx", "calls", "irq", "icr", "irqat" };
++	static const char *const kinds[] = { "bx", "balx", "callx", "calls", "irq", "icr", "irqat", "iac" };
 +	for (const auto &[key, count] : m_branch_log)
 +		fprintf(f, "%s %08x %08x %llu\n", kinds[std::get<0>(key)], std::get<1>(key), std::get<2>(key),
 +				(unsigned long long)count);
@@ -158,7 +166,7 @@ index f2a2f23cd4..47e479e9ec 100644
  {
  	m_SAT        = m_program.read_dword(0);
 diff --git a/src/devices/cpu/i960/i960.h b/src/devices/cpu/i960/i960.h
-index 4200f98a99..6755f2b883 100644
+index 4200f98a99..7b382ab239 100644
 --- a/src/devices/cpu/i960/i960.h
 +++ b/src/devices/cpu/i960/i960.h
 @@ -5,6 +5,9 @@
@@ -184,7 +192,7 @@ index 4200f98a99..6755f2b883 100644
  
  private:
 +	// daytona-arcade-recomp: indirect-transfer harvest (M2TRACE_BRANCHES)
-+	enum branch_kind : uint32_t { BK_BX, BK_BALX, BK_CALLX, BK_CALLS, BK_IRQ, BK_ICR, BK_IRQ_AT };
++	enum branch_kind : uint32_t { BK_BX, BK_BALX, BK_CALLX, BK_CALLS, BK_IRQ, BK_ICR, BK_IRQ_AT, BK_IAC };
 +	std::map<std::tuple<uint32_t, uint32_t, uint32_t>, uint64_t> m_branch_log;
 +	bool m_branch_log_on = false;
 +	// daytona-arcade-recomp: interrupt event log for lockstep replay

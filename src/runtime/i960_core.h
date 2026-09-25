@@ -64,6 +64,15 @@ public:
 
     void reset();                               // MAME device_reset
     void execute_one();                         // one instruction, as MAME's execute_run loop body
+    // One instruction whose address and first word are known at compile time
+    // (recompiled code). Same semantics as execute_one; MEMB displacements are
+    // still fetched from ROM through the bus by get_ea.
+    void exec(uint32_t pc, uint32_t word) {
+        m_PIP = pc;
+        m_IP = pc + 4;
+        m_stalled = false;
+        execute_op(word);
+    }
     void execute_set_input(int irqline, int state);
     void check_immediate_irqs();                // take an immediate interrupt if one is waiting
 
@@ -84,8 +93,8 @@ public:
     void (*on_take)(void *ctx, int vector, uint32_t ip, bool pending) = nullptr;
     void *on_take_ctx = nullptr;
 
-private:
-    friend struct CoreAccess;
+    // Everything below is also used by recompiled code (memory helpers, frame
+    // management, interrupt entry), so it is public.
     // Kept so the transplanted code compiles unchanged; never set.
     bool m_stalled = false;
     struct {
