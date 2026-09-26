@@ -154,7 +154,7 @@ index f7dc50647a..5022cb3236 100644
  
  	const u32 line = 1 << 0;
 diff --git a/src/mame/sega/model2_v.cpp b/src/mame/sega/model2_v.cpp
-index 3a5bfa51ba..a066ac6bf7 100644
+index 3a5bfa51ba..76255ac667 100644
 --- a/src/mame/sega/model2_v.cpp
 +++ b/src/mame/sega/model2_v.cpp
 @@ -94,6 +94,8 @@
@@ -183,7 +183,62 @@ index 3a5bfa51ba..a066ac6bf7 100644
  			/* add to our sorted list */
  			raster->poly_sorted_list[object.z] = poly;
  			poly->next = zpoly;
-@@ -768,6 +780,9 @@ void model2_state::draw_framebuffer(bitmap_rgb32 &bitmap, const rectangle &clipr
+@@ -693,16 +705,24 @@ void model2_state::render_polygons(bitmap_rgb32 &bitmap, const rectangle &clipre
+ 	raster_state *raster = m_raster.get();
+ 	int32_t z;
+ 
++	// daytona-arcade-recomp: 3D framebuffer log (M2TRACE_GEOLOG "fb" lines)
++	FILE *const fbl = m2_geo_log();
++	const unsigned fbframe = unsigned(m_screen->frame_number());
++
+ 	// if the geometrizer hasn't presented a new frame, just copy the previous frame and bail
+ 	if (m_render_done)
+ 	{
++		if (fbl) fprintf(fbl, "fb %u same\n", fbframe);
+ 		copybitmap_trans(bitmap, m_renderer->destmap(), 0, 0, 0, 0, cliprect, 0x00000000);
+ 		return;
+ 	}
+ 
+ 	/* if we have nothing to render, bail */
+ 	if (raster->poly_list_index == 0)
++	{
++		if (fbl) fprintf(fbl, "fb %u empty\n", fbframe);
+ 		return;
++	}
+ 
+ 	m_renderer->destmap().fill(0x00000000, cliprect);
+ 	m_renderer->fillmap().fill(0x00, cliprect);
+@@ -735,6 +755,29 @@ void model2_state::render_polygons(bitmap_rgb32 &bitmap, const rectangle &clipre
+ 	}
+ 	m_renderer->wait("End of frame");
+ 
++	if (fbl) {
++		// FNV-1a over the visible area of the 3D layer (cliprect), row by row
++		u64 h = 0xcbf29ce484222325ULL;
++		for (int y = cliprect.min_y; y <= cliprect.max_y; y++)
++			for (int x = cliprect.min_x; x <= cliprect.max_x; x++) {
++				const u32 px = m_renderer->destmap().pix(y, x);
++				for (int b = 0; b < 4; b++) { h ^= (px >> (8 * b)) & 0xff; h *= 0x100000001b3ULL; }
++			}
++		fprintf(fbl, "fb %u %016llx %d %d %d %d %d %d\n", fbframe, (unsigned long long)h, m_crtc_xoffset, m_crtc_yoffset,
++				cliprect.min_x, cliprect.max_x, cliprect.min_y, cliprect.max_y);
++		static int every = getenv("M2TRACE_FBDUMP_EVERY") ? atoi(getenv("M2TRACE_FBDUMP_EVERY")) : 0;
++		static const char *dir = getenv("M2TRACE_FBDUMP_DIR");
++		if (dir && every > 0 && fbframe % every == 0) {
++			char path[512];
++			snprintf(path, sizeof path, "%s/mame_%05u.rgb", dir, fbframe);
++			if (FILE *d = fopen(path, "wb")) {
++				for (int y = cliprect.min_y; y <= cliprect.max_y; y++)
++					fwrite(&m_renderer->destmap().pix(y, cliprect.min_x), 4, cliprect.max_x - cliprect.min_x + 1, d);
++				fclose(d);
++			}
++		}
++	}
++
+ 	copybitmap_trans(bitmap, m_renderer->destmap(), 0, 0, 0, 0, cliprect, 0x00000000);
+ 
+ 	m_render_done = true;
+@@ -768,6 +811,9 @@ void model2_state::draw_framebuffer(bitmap_rgb32 &bitmap, const rectangle &clipr
  /* 3D Rasterizer main data input port */
  void model2_state::model2_3d_push(raster_state *raster, u32 input)
  {

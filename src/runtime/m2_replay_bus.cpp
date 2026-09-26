@@ -75,8 +75,8 @@ M2ReplayBus::M2ReplayBus(std::vector<uint8_t> program, std::vector<uint8_t> main
     map(0x06000000, 0x06ffffff, Rom, main_data_.data() + 0x1000000);
     map(0x11600000, 0x1167ffff, Ram, fb_a_.data());
     map(0x11680000, 0x116fffff, Ram, fb_b_.data());
-    map(0x12000000, 0x121fffff, Ram, tex0_.data(), 0x200000);
-    map(0x12400000, 0x125fffff, Ram, tex1_.data(), 0x200000);
+    map(0x12000000, 0x121fffff, Tex, tex0_.data(), 0x200000);
+    map(0x12400000, 0x125fffff, Tex, tex1_.data(), 0x200000);
     map(0x12800000, 0x1281ffff, Ram, luma_.data());
     for (const auto &d : kReadTaps) map_device(d.start, d.end);
     // Device ranges MAME flags BURST: geometrizer program port, TGP function
@@ -230,11 +230,32 @@ void M2ReplayBus::device_write(uint32_t addr, uint32_t data, uint32_t mask) {
 
 // Sub-word device accesses reach the tap as the containing dword with a lane
 // mask, as in MAME's 32-bit little-endian space.
+VideoMem M2ReplayBus::video_mem() const {
+    VideoMem m;
+    m.palram = palette_.data();
+    m.colorxlat = xlat_.data();
+    m.lumaram = luma_.data();
+    m.tex0 = reinterpret_cast<const uint32_t *>(tex0_.data());
+    m.tex1 = reinterpret_cast<const uint32_t *>(tex1_.data());
+    return m;
+}
+
+// MAME model2_tgp_state::tex0_w/tex1_w: dword offset o stores the low 16
+// bits of what was written into half (o & 1) of stored dword o >> 1. The
+// handler takes no mask: a narrower write arrives as the dword, other lanes 0.
+void M2ReplayBus::tex_write(const Page &p, uint32_t addr, uint32_t lane_data) {
+    uint8_t *const base = p.base - ((addr & 0x1fffff) & ~((1u << kPageBits) - 1)); // array start
+    const uint32_t o = (addr & 0x1fffff) >> 2;
+    uint8_t *const w = base + (o >> 1) * 4 + (o & 1) * 2;
+    w[0] = uint8_t(lane_data);
+    w[1] = uint8_t(lane_data >> 8);
+}
+
 uint32_t M2ReplayBus::peek(uint32_t addr) {
     addr &= ~3u;
     const Page &p = page(addr);
     uint32_t v;
-    if (p.kind == Rom || p.kind == Ram) std::memcpy(&v, p.base + (addr & 0xfff), 4);
+    if (p.kind == Rom || p.kind == Ram || p.kind == Tex) std::memcpy(&v, p.base + (addr & 0xfff), 4);
     else if (p.kind == Unmapped) std::memcpy(&v, sparse(addr), 4);
     else throw Divergence("peek at device address " + hex(addr));
     return v;
@@ -253,7 +274,8 @@ uint8_t M2ReplayBus::read_byte(uint32_t addr) {
     const unsigned sh = (addr & 3) * 8;
     switch (p.kind) {
     case Rom:
-    case Ram: return p.base[addr & 0xfff];
+    case Ram:
+    case Tex: return p.base[addr & 0xfff];
     case Device: return uint8_t(device_read(addr & ~3u, 0xffu << sh) >> sh);
     default: return *sparse(addr);
     }
@@ -265,7 +287,8 @@ uint16_t M2ReplayBus::read_word(uint32_t addr) {
     const unsigned sh = (addr & 2) * 8;
     switch (p.kind) {
     case Rom:
-    case Ram: {
+    case Ram:
+    case Tex: {
         uint16_t v;
         std::memcpy(&v, p.base + (addr & 0xfff), 2);
         return v;
@@ -284,7 +307,8 @@ uint32_t M2ReplayBus::read_dword(uint32_t addr) {
     const Page &p = page(addr);
     switch (p.kind) {
     case Rom:
-    case Ram: {
+    case Ram:
+    case Tex: {
         uint32_t v;
         std::memcpy(&v, p.base + (addr & 0xfff), 4);
         return v;
@@ -304,6 +328,7 @@ void M2ReplayBus::write_byte(uint32_t addr, uint8_t data) {
     switch (p.kind) {
     case Rom: return; // nopw
     case Ram: p.base[addr & 0xfff] = data; return;
+    case Tex: tex_write(p, addr, uint32_t(data) << ((addr & 3) * 8)); return;
     case Device:
         if (write_tapped(addr)) { device_write(addr & ~3u, uint32_t(data) << sh, 0xffu << sh); return; }
         [[fallthrough]];
@@ -318,6 +343,7 @@ void M2ReplayBus::write_word(uint32_t addr, uint16_t data) {
     switch (p.kind) {
     case Rom: return;
     case Ram: std::memcpy(p.base + (addr & 0xfff), &data, 2); return;
+    case Tex: tex_write(p, addr, uint32_t(data) << ((addr & 2) * 8)); return;
     case Device:
         if (write_tapped(addr)) { device_write(addr & ~3u, uint32_t(data) << sh, 0xffffu << sh); return; }
         [[fallthrough]];
@@ -331,6 +357,7 @@ void M2ReplayBus::write_dword(uint32_t addr, uint32_t data) {
     switch (p.kind) {
     case Rom: return;
     case Ram: std::memcpy(p.base + (addr & 0xfff), &data, 4); return;
+    case Tex: tex_write(p, addr, data); return;
     case Device:
         if (write_tapped(addr)) { device_write(addr, data, 0xffffffffu); return; }
         [[fallthrough]];

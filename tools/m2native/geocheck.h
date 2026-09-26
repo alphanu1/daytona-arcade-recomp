@@ -8,6 +8,9 @@
 #include "runtime/lockstep.h"
 #include "runtime/m2_replay_bus.h"
 #include "runtime/m2_tgp_board.h"
+#include "runtime/raster.h"
+
+#include <cstdlib>
 
 #include <bit>
 #include <cinttypes>
@@ -38,6 +41,8 @@ public:
     }
 
     uint64_t frames_checked = 0, words = 0, polys = 0;
+    uint64_t fb_checked = 0, fb_mismatch = 0;
+    std::string first_fb_mismatch;
     size_t frames_logged() const { return frames_.size(); }
 
 private:
@@ -56,6 +61,10 @@ private:
 
     void at(size_t k) {
         const Frame &fr = frames_[k];
+        // MAME's screen_update at this vblank rendered the previous parse
+        // (its "fb" line precedes this "vb"); render ours the same way.
+        if (!pending_fb_.empty()) check_fb(fr, pending_fb_);
+        pending_fb_.clear();
         if (!fr.parse) return;
         geo_.zclip_w(bus_.peek(0x0181c000));
         geo_.record_pushes = true;
@@ -74,6 +83,8 @@ private:
                     diverge(fr, b);
                 }
                 ++pi;
+            } else if (line.compare(0, 3, "fb ") == 0) {
+                pending_fb_ = line;
             } else if (line.compare(0, 5, "poly ") == 0) {
                 if (qi >= geo_.polys.size()) diverge(fr, "MAME kept more polygons");
                 check_poly(fr, qi, geo_.polys[qi], line);
@@ -110,6 +121,36 @@ private:
         }
     }
 
+    void check_fb(const Frame &fr, const std::string &line) {
+        unsigned frame = 0;
+        char what[32] = {};
+        std::sscanf(line.c_str(), "fb %u %31s", &frame, what);
+        if (std::string(what) == "same" || std::string(what) == "empty") return;
+        unsigned long long want = std::strtoull(what, nullptr, 16);
+        int cx, cy, x0, x1, y0, y1;
+        if (std::sscanf(line.c_str(), "fb %*u %*s %d %d %d %d %d %d", &cx, &cy, &x0, &x1, &y0, &y1) != 6) return;
+        raster_.render(geo_.polys, geo_.windows(), bus_.video_mem(), cx, cy, x0, x1, y0, y1);
+        const uint64_t got = raster_.hash(x0, x1, y0, y1);
+        ++fb_checked;
+        if (got != want && !fb_mismatch++) {
+            char b[96];
+            std::snprintf(b, sizeof b, "frame %u (at vblank %u)", frame, fr.frame);
+            first_fb_mismatch = b;
+        }
+        static const char *dir = std::getenv("M2NATIVE_FBDUMP_DIR");
+        static const int every = std::getenv("M2NATIVE_FBDUMP_EVERY") ? std::atoi(std::getenv("M2NATIVE_FBDUMP_EVERY")) : 0;
+        if (dir && every > 0 && frame % unsigned(every) == 0) {
+            char path[512];
+            std::snprintf(path, sizeof path, "%s/ours_%05u.rgb", dir, frame);
+            if (FILE *d = std::fopen(path, "wb")) {
+                for (int y = y0; y <= y1; y++) std::fwrite(raster_.pixels() + y * 512 + x0, 4, size_t(x1 - x0 + 1), d);
+                std::fclose(d);
+            }
+        }
+    }
+
+    rt::Raster raster_;
+    std::string pending_fb_;
     std::ifstream f_;
     rt::Geo &geo_;
     rt::TgpBoard &board_;

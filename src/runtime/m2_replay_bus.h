@@ -4,6 +4,7 @@
 #pragma once
 
 #include "runtime/cpu.h"
+#include "runtime/raster.h"
 #include "trace/trace.h"
 
 #include <array>
@@ -46,6 +47,9 @@ public:
     void set_model(DeviceModel *m) { model_ = m; }
     // A dword of RAM, ROM or untapped register space, bypassing the trace.
     uint32_t peek(uint32_t addr);
+    // The memories the 3D rasterizer reads (palette, colour translation,
+    // luma, texture RAM), current as of now.
+    VideoMem video_mem() const;
 
     uint32_t fetch(uint32_t addr) override;
     uint8_t read_byte(uint32_t addr) override;
@@ -64,7 +68,10 @@ public:
     std::string where() const; // epoch / event position, for reports
 
 private:
-    enum Kind : uint8_t { Unmapped, Rom, Ram, Device };
+    // Tex: model2o texture RAM. MAME's tex0_w/tex1_w keep only 16 bits of
+    // each 32-bit write, packing two writes per stored dword; reads see the
+    // packed store directly.
+    enum Kind : uint8_t { Unmapped, Rom, Ram, Device, Tex };
     struct Page {
         Kind kind = Unmapped;
         bool burst = false;        // MAME maps the range with .flags(i960_cpu_device::BURST)
@@ -81,6 +88,7 @@ private:
     const trace::Access &next_event(bool write, uint32_t addr, uint32_t mask);
     void end_of_epoch_check();
     uint8_t *sparse(uint32_t addr);
+    void tex_write(const Page &p, uint32_t addr, uint32_t lane_data);
 
     std::vector<uint8_t> program_, main_data_;
     std::vector<uint8_t> ram_, work_, buffer_, cpuctl_, backup_, tile_, chr_, palette_, xlat_, tex0_, tex1_, luma_,

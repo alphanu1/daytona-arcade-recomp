@@ -319,7 +319,7 @@ The critical path is i960 parity, then TGP parity; rendering and polish can proc
 1. **M0 Tooling:** MAME trace plugin, input recorder, trace diff tool, i960 disassembler.
 2. **M1 Boot:** Recompiled code reaches attract mode with RAM hashes matching MAME; no graphics.
 3. **M2 Geometry:** the recompiled TGP program matches MAME's FIFO output for attract mode; display lists dump correctly. **Met**: native i960 + recompiled TGP + native buffer RAM + native geometrizer match MAME's rasterizer input and kept polygons bit for bit through attract, a 6,000-frame race and time attack (152 M rasterizer words, 6.7 M polygons in the race).
-4. **M3 Pixels:** GPU renderer draws attract mode and a race at native res; tilemaps and HUD work.
+4. **M3 Pixels:** GPU renderer draws attract mode and a race at native res; tilemaps and HUD work. **Progress**: a CPU reference rasterizer (MAME's renderer transplanted, `src/runtime/raster.cpp`) draws the 3D layer from the native pipeline pixel-identical to MAME: 423 attract frames and 5,587 race frames. It is the ground truth the GPU backend is measured against.
 5. **M4 Playable:** Sound, inputs, full-race replay parity on all three courses.
 6. **M5 Cabinet feel:** Force feedback, link play on LAN, PCB side-by-side validation.
 7. **M6 Ship:** Importer, packaging on all three OSes, enhancements, settings UI.

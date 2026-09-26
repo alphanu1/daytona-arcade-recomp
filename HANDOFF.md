@@ -2,6 +2,23 @@
 
 ## Current state
 
+**M3 started: the 3D layer renders natively, pixel-identical to MAME.**
+`src/runtime/raster.cpp` is a CPU reference rasterizer (MAME's Model 2
+renderer and the poly.h triangle/polygon setup, transplanted). In
+`m2native`, at each vblank it draws the previous display list from our own
+video memories (palette, colour translation, luma, texture RAM, all written
+by the recompiled i960) and is held to a hash of MAME's 3D layer (patch 0002
+`fb` lines): **423 of 423 rendered attract frames and 5,587 of 5,587 race
+frames identical**, and a dumped frame is byte-identical to MAME's. A
+mutant (one gamma entry off by one) fails every frame. Frame dumps:
+`M2NATIVE_FBDUMP_DIR`/`M2NATIVE_FBDUMP_EVERY` (ours),
+`M2TRACE_FBDUMP_DIR`/`M2TRACE_FBDUMP_EVERY` (MAME); `scripts/rgb2png.py`
+converts either (game output: keep under traces/). Finding on the way: the
+original Model 2's texture RAM keeps only 16 bits of each 32-bit write,
+packing two writes per stored dword (MAME tex0_w/tex1_w); the bus now does
+the same. CRTC offsets are still taken from MAME's log (they come from the
+segaic24 tilemap chip, next).
+
 **M2 geometry, native and matching MAME.** The whole geometry path now runs
 natively inside `m2native`: recompiled i960, recompiled TGP, buffer RAM, and
 the geometrizer (`src/runtime/geo.cpp`, MAME's HLE transplanted; the
@@ -142,23 +159,19 @@ Running the plugin (user's machine, with their ROM set):
 
 ## Next, in order
 
-1. M3 renderer: a GPU backend drawing the display list (`Geo::polys`), with
-   MAME's projection (`model2_3d_project`) and its z-bucket, window order.
-   Tilemaps (segaic24) and palette alongside. Compare frames against MAME
-   screenshots (`-video` on, snapshots) with a tolerance, since MAME's
-   software rasterizer is not the hardware's either.
-2. The game loop outside lockstep: the i960 driven by the native board
-   (vblank and timer interrupts at safe points, sound UART and I/O board
-   stubs), so the recompiled game runs on its own with no trace.
-3. Portability of the geometrizer's libm calls: `std::hypot` (window clip
-   planes) and `sqrt` come from the C library; pin them to a correctly
-   rounded implementation before comparing across Windows, macOS, Android.
-4. Harvest the 21 indirect sites no run has hit (47 of 68 so far); best from
-   a user recording (M2TRACE_RECORD_INPUT) of circuit select and test mode.
-5. Mailbox rule for the shipped build (TGP runs to its FIFO wait before the
-   i960 reads the mailbox), then the shipped native build: interrupts at safe
-   points, RAM inline. Targets: x86-64 and ARM64 on Windows, Linux, macOS,
-   Android and Raspberry Pi.
+1. segaic24 tilemap chip (2D layers: HUD, text, backgrounds) and its CRTC
+   offsets, native, composed with the 3D layer as MAME's screen_update does;
+   check whole frames against MAME.
+2. GPU backend (SDL3 GPU: Vulkan, Metal, D3D12) drawing the same display
+   list; the CPU reference is its ground truth (tolerance-based, since GPU
+   rasterization rules differ).
+3. The game loop outside lockstep: the recompiled i960 driven by the native
+   board (vblank and timer interrupts at safe points, sound UART and I/O
+   board), so the game runs with no trace, then a window.
+4. Pin the geometrizer's libm calls (`hypot`, `sqrt`) to correctly rounded
+   versions for cross-host agreement.
+5. Harvest the 21 unhit indirect sites (a user recording of circuit select
+   and test mode).
 
 ## Open decisions
 

@@ -124,6 +124,7 @@ public:
         uint32_t polygon_ram1[0x8000] = {};
     };
 
+    int windows() const { return raster_.cur_window; } // after parse: the last window used
     void zclip_w(uint32_t data) { raster_.master_z_clip = uint8_t(data); } // model2_3d_zclip_w
 
 private:

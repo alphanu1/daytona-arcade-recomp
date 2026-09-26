@@ -56,6 +56,7 @@ add_library(runtime STATIC
     src/runtime/tgp.cpp
     src/runtime/m2_tgp_board.cpp
     src/runtime/geo.cpp
+    src/runtime/raster.cpp
     src/runtime/m2_replay_bus.cpp
     src/runtime/lockstep.cpp
 )
