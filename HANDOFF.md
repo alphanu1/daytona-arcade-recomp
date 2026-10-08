@@ -2,7 +2,7 @@
 
 ## Scenery selection and polygon budget PR branch (2026-10-08)
 
-Branch `pr/scenery-budget` starts from upstream/main `82201ed`, separate from
+Branch `scenery-budget` starts from upstream/main `82201ed`, separate from
 the staged integration merge. Widescreen at the existing 16:10, 16:9 and
 21:9 choices now appends nearby scenery cells omitted by the game's narrow
 directional selection while retaining course exclusions and original order.
