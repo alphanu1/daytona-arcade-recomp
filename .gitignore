@@ -46,7 +46,6 @@ CMakeUserPresets.json
 compile_commands.json
 *.apk
 *.cmd
-*.cmake
 *.o
 *.a
 *.so
@@ -60,6 +59,7 @@ compile_commands.json
 .ninja_log
 shadercache/
 *.spv
+zig-windows.cmake
 
 # ---- Editor / OS ----
 .idea/
