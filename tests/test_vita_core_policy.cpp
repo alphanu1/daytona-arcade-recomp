@@ -25,4 +25,7 @@ int main() {
     CHECK(!vita::request_core_mask(15, 7, [](int) { return -1; }, [] { return 15; }));
     CHECK(vita::request_core_mask(7, 7, set, [&] { return actual; }));
     CHECK(actual == 7);
+    // Pinned cores (default GPU builds) vs unpinned (-1, --free-core).
+    static_assert(vita::core_pin_mask(0) == 0x10000 && vita::core_pin_mask(2) == 0x40000);
+    static_assert(vita::core_pin_mask(-1) == 0 && vita::core_pin_mask(3) == 0);
 }

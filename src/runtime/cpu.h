@@ -22,6 +22,15 @@
 #define M2_AL(p, n) (p)
 #endif
 
+// M2_FAST_GEN: runtime support of the i960 code rewritten by fast_gen.py
+// (platform/dreamcast/scripts; the Vita build runs it too, scripts/build_vita.py)
+// and of m2recomp --fast_inaccuracy: Cpu::work_ram, gen::wram_*, Lockstep's
+// pending/check/set_end/epoch. The Dreamcast's M2_DC_SPEED includes it; the
+// Vita build defines it alone (platform/vita/CMakeLists.txt).
+#if defined(M2_DC_SPEED) && !defined(M2_FAST_GEN)
+#define M2_FAST_GEN 1
+#endif
+
 namespace rt {
 
 // Memory as the i960 sees it. Byte addresses, little-endian.
@@ -110,10 +119,10 @@ public:
     void do_ret();
     void standard_irq_callback(int, uint32_t) {}
 
-#ifdef M2_DC_SPEED
-    // Work RAM (0x00500000-0x005fffff, the board's), for the Dreamcast's
-    // rewritten generated code (scripts/fast_gen.py: gen::wram_*). Last in
-    // the class, so the members the generated code uses keep their offsets.
+#ifdef M2_FAST_GEN
+    // Work RAM (0x00500000-0x005fffff, the board's), for the rewritten
+    // generated code (fast_gen.py: gen::wram_*). Last in the class, so the
+    // members the generated code uses keep their offsets.
     uint8_t *work_ram = nullptr;
 #endif
 };

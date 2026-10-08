@@ -22,7 +22,8 @@
 
 // This is an up-front reservation, not a limit that grows on demand. Leave
 // memory outside newlib for the executable, driver allocations and stacks.
-extern "C" { unsigned int _newlib_heap_size_user = 192 * 1024 * 1024; }
+// Read by newlib (not LTO code): kept by "used" in the release (LTO) build.
+extern "C" { __attribute__((used)) unsigned int _newlib_heap_size_user = 192 * 1024 * 1024; }
 namespace {
 constexpr const char *kDirectory = "ux0:data/daytona93";
 constexpr const char *kRom = "ux0:data/daytona93/daytona93.zip";

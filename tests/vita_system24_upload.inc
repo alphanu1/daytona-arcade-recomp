@@ -92,3 +92,95 @@ void system24_upload_tests() {
             "invalid texture stride rejected");
     std::puts("PASS: exact Vita tile uploader: sparse writes, glyphs, skipped frames, palettes, split categories, padded strides");
 }
+
+// The vitaGL index form (pen numbers + palette texture) against the colour form above:
+// decoded through the palette it gives the same texels, its incremental uploads match a
+// full one (two texture sets alternating, as gpu_gl.cpp's slots), a palette change
+// rewrites no tile, and the run-based writer equals the per-tile reference.
+void system24_index_tests() {
+    Memory mem; // random tile RAM, characters and palette
+    auto video = std::make_unique<rt::Video>(mem.tile.data(), mem.chars.data());
+    video->set_external_3d(true);
+    video->enable_write_tracking();
+    for (unsigned i = 0; i < 0x2000; ++i) video->palette_w(i, mem.pal.data(), mem.xlat.data());
+    constexpr size_t stride = 512, bytes = stride * sizeof(uint32_t);
+    auto frame = [&] {
+        video->tile_memory_w();
+        video->character_memory_w();
+        video->screen_update({}, 0, mem.view());
+    };
+    auto planes = [] {
+        std::array<std::vector<uint32_t>, 8> p;
+        for (auto &t : p) t.assign(stride * 512, 0x5a5a5a5au);
+        return p;
+    };
+    auto full = [&](bool indices) {
+        auto p = planes();
+        for (int layer = 0; layer < 4; ++layer) {
+            if (indices)
+                vita::upload_system24_layer_indices(*video, layer, UINT64_MAX, p[size_t(layer)].data(), bytes,
+                                                    p[size_t(layer + 4)].data(), bytes);
+            else
+                vita::upload_system24_layer(*video, layer, UINT64_MAX, p[size_t(layer)].data(), bytes,
+                                            p[size_t(layer + 4)].data(), bytes);
+        }
+        return p;
+    };
+    auto check_decoded = [&](const char *what) {
+        const auto colour = full(false), index = full(true);
+        std::vector<uint32_t> palette(vita::kSystem24PaletteWidth * vita::kSystem24PaletteHeight);
+        require(vita::upload_system24_palette(*video, palette.data(), vita::kSystem24PaletteWidth), "palette upload");
+        for (size_t plane = 0; plane < 8; ++plane)
+            for (size_t i = 0; i < stride * 512; ++i) {
+                const uint32_t t = index[plane][i];
+                if (!(t >> 24)) { require(colour[plane][i] == 0, what); continue; }
+                const uint32_t pen = ((t >> 10) & 63u) * 128u + ((t >> 1) & 127u);
+                require(palette[pen] == colour[plane][i], what);
+            }
+    };
+    frame();
+    check_decoded("index form through the palette equals the colour form");
+
+    // Two sets, each two frames behind, as gpu_gl.cpp's S24Slot pair.
+    std::array<std::array<std::vector<uint32_t>, 8>, 2> sets{planes(), planes()};
+    std::array<uint64_t, 2> generation{UINT64_MAX, UINT64_MAX};
+    auto upload_set = [&](unsigned s) {
+        unsigned count = 0;
+        for (int layer = 0; layer < 4; ++layer)
+            count += vita::upload_system24_layer_indices(*video, layer, generation[s], sets[s][size_t(layer)].data(),
+                                                         bytes, sets[s][size_t(layer + 4)].data(), bytes);
+        generation[s] = video->system24_texture_generation();
+        const auto fresh = full(true);
+        for (size_t plane = 0; plane < 8; ++plane)
+            compare(sets[s][plane].data(), fresh[plane].data(), fresh[plane].size(), int(plane),
+                    "incremental index upload");
+        return count;
+    };
+    require(upload_set(0) == 16384 && upload_set(1) == 16384, "first index uploads write every tile");
+    for (unsigned i = 0; i < 9; ++i) mem.word(i * 37u, uint16_t(i * 101u));
+    frame();
+    require(upload_set(0) == 9, "index set catches up the changed tiles");
+    mem.word(0x1234, 7);
+    frame();
+    require(upload_set(1) == 10, "the other set catches up two frames of changes");
+    require(upload_set(0) == 1, "set 0 catches up the last change");
+    std::fill(mem.xlat.begin(), mem.xlat.end(), 0x3c);
+    for (unsigned i = 0; i < 0x2000; ++i) video->palette_w(i, mem.pal.data(), mem.xlat.data());
+    frame();
+    require(upload_set(0) == 0 && upload_set(1) == 0, "a palette change rewrites no index tile");
+    check_decoded("index form follows the new palette");
+    mem.word(0x5006, 0x2000); // split mode: the opaque background filters category 1
+    frame();
+    upload_set(1);
+    check_decoded("index form in split mode");
+
+    // The run-based writer against the per-tile reference form.
+    for (int layer = 0; layer < 4; ++layer) {
+        auto a = planes(), b = planes();
+        vita::upload_system24_layer_indices(*video, layer, UINT64_MAX, a[0].data(), bytes, a[4].data(), bytes);
+        vita::upload_system24_layer_impl<true>(*video, layer, UINT64_MAX, b[0].data(), bytes, b[4].data(), bytes);
+        compare(a[0].data(), b[0].data(), a[0].size(), layer, "run writer background");
+        compare(a[4].data(), b[4].data(), a[4].size(), layer, "run writer foreground");
+    }
+    std::puts("PASS: vitaGL index tiles: palette decode = colour form, two alternating sets, palette changes, split mode");
+}

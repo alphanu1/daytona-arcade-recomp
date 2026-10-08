@@ -15,6 +15,8 @@
 // toggles fullscreen. Controls are set in the launcher and saved.
 
 #include "app/config.h"
+#include "app/gpu_device.h"
+#include "app/startup_error.h"
 #include "app/ffb.h"
 #include "app/pacing.h"
 #include "runtime/test_hold.h"
@@ -243,14 +245,16 @@ int main(int argc, char **argv) {
                                           SDL_WINDOW_RESIZABLE | (cfg.fullscreen ? SDL_WINDOW_FULLSCREEN : 0));
     if (!window) return fail("SDL_CreateWindow");
     app::apply_fullscreen_mode(window, cfg.fullscreen_mode);
-    constexpr SDL_GPUShaderFormat formats = SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_DXIL | SDL_GPU_SHADERFORMAT_MSL;
-    SDL_GPUDevice *dev = SDL_CreateGPUDevice(formats, false, nullptr);
+    SDL_Log("SDL %d; compiled GPU backends: %d", SDL_GetVersion(), SDL_GetNumGPUDrivers());
+    for (int i = 0; i < SDL_GetNumGPUDrivers(); ++i)
+        SDL_Log("GPU backend: %s", SDL_GetGPUDriver(i));
+    SDL_GPUDevice *dev = app::create_gpu_device();
     if (!dev && !cfg.gpu.empty()) {
         // The chosen API is not available here (Vulkan on a Mac without MoltenVK): use the automatic choice.
         std::fprintf(stderr, "daytona: %s; falling back to automatic\n", SDL_GetError());
         SDL_ResetHint(SDL_HINT_GPU_DRIVER);
         cfg.gpu.clear();
-        dev = SDL_CreateGPUDevice(formats, false, nullptr);
+        dev = app::create_gpu_device();
     }
     if (!dev) return fail("SDL_CreateGPUDevice");
     if (!SDL_ClaimWindowForGPUDevice(dev, window)) return fail("SDL_ClaimWindowForGPUDevice");

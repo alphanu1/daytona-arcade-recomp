@@ -1,5 +1,40 @@
 # Vita port handoff — 29 September 2026
 
+## Multicore + vitaGL branch merged — 8 October 2026
+
+The multicore/vitaGL branch (pipelined geometrizer, pinned cores, vitaGL
+renderer, reference audio pacing, `--fast-inaccuracy`/`--fast-gen` game code,
+LTO, per-core `perf.log`) is merged onto this tree, mostly as additions:
+
+* `main_gpu.cpp` is shared by `--gpu-fast` (vita2d) and `--gpu-gl` (vitaGL),
+  with this tree's ImGui launcher, options, dual-ROM switching, link play,
+  test hold, CPU 500 MHz and fourth-core setting in both. ImGui draws through
+  vitaGL in the GL build (`imgui_vita.h` + `gl_ui_triangles`, host test
+  `test_vita_imgui_gl`).
+* One multicore flow for both renderers: main core 0, geometry core 1
+  (always pipelined), sound worker and vitaGL 2D worker core 2. vitaGL shows
+  the 2D one frame late, in phase with the 3D; gpu_fast keeps its single set
+  of layer textures (current 2D, one frame ahead of the 3D): an in-phase
+  version with two sets uploaded every tile/palette change twice and was
+  slower on the console.
+  `--free-core` unpins every thread; they then follow the fourth-core policy.
+* The CPU/GPU picture switch (`draw_exact`, the `gpu_fast` flag) is removed:
+  the pipelined geometry leaves no exact CPU picture to switch to.
+* Widescreen stays a GXM feature; the vitaGL build keeps 4:3.
+* Shared runtime: the fast_gen support moved from `M2_DC_SPEED` to
+  `M2_FAST_GEN` (defined by `M2_DC_SPEED` too, so the Dreamcast preprocesses
+  identically; the desktop too). Lockstep callback slots are reused under
+  `M2_FAST_GEN` as under `M2_DC_MEMORY`. The Vita copy of `fast_gen.py` is
+  gone: `build_vita.py` runs `platform/dreamcast/scripts/fast_gen.py`.
+* Host tests added for the branch's helpers: `test_vita_audio_rate` (audio
+  pacing), `test_vita_flat_index`, `test_vita_texel_index`,
+  `test_vita_imgui_gl`, and the vitaGL index tiles in
+  `scripts/test_vita_renderer.py`. Every Vita host test passes
+  (`-DM2_VITA_TESTS=ON`), and the Vita frontend sources compile
+  (`-fsyntax-only`) against the real vita-headers, SDL2, libvita2d and vitaGL
+  headers.
+* Played on a console after the merge (both GPU builds): works as expected.
+
 ## ImGui launcher — 6 October 2026
 
 The GXM frontend now uses Dear ImGui instead of its bitmap menu. It shares

@@ -97,6 +97,29 @@ class BuildVitaTests(unittest.TestCase):
             run.assert_not_called()
         self.assertIn("draw-distance hook", self.output.getvalue())
 
+    def test_cores_pinned_by_default(self):
+        with patch.object(BUILD.subprocess, "run") as run:
+            self.call("--compile-check", "--gpu-fast")
+        self.assertIn("-DDAYTONA_VITA_FREE_CORES=OFF", run.call_args_list[0].args[0])
+
+    def test_free_core(self):
+        with patch.object(BUILD.subprocess, "run") as run:
+            self.call("--compile-check", "--gpu-gl", "--free-core")
+        configure = run.call_args_list[0].args[0]
+        self.assertIn("-DDAYTONA_VITA_FREE_CORES=ON", configure)
+        self.assertIn("-DDAYTONA_VITA_GPU_GL=ON", configure)
+        self.assertIn("-DDAYTONA_VITA_GPU_FAST=OFF", configure)
+
+    def test_free_core_requires_gpu_build(self):
+        with patch.object(BUILD.subprocess, "run") as run:
+            with self.assertRaises(SystemExit):
+                self.call("--compile-check", "--free-core")
+            run.assert_not_called()
+
+    def test_renderers_are_exclusive(self):
+        with self.assertRaises(SystemExit):
+            self.call("--compile-check", "--gpu-fast", "--gpu-gl")
+
     def test_custom_host_directory(self):
         with patch.object(BUILD.subprocess, "run") as run:
             self.call("--compile-check", "--host-build-dir", "host build", "--build-dir", "cross build")

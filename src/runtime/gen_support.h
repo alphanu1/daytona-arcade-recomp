@@ -37,9 +37,9 @@ inline double round_to_int(double v, uint32_t ac) {
 }
 inline uint32_t f2u(float f) { return std::bit_cast<uint32_t>(f); }
 
-#ifdef M2_DC_SPEED
-// Work RAM at a fixed offset, for the Dreamcast's rewritten code
-// (platform/dreamcast/scripts/fast_gen.py): what the bus does for these
+#ifdef M2_FAST_GEN
+// Work RAM at a fixed offset, for the rewritten code (the Dreamcast's and the
+// Vita's: platform/dreamcast/scripts/fast_gen.py): what the bus does for these
 // addresses (plain RAM, little-endian, aligned), without the calls.
 inline uint32_t wram_r32(const rt::Cpu &c, uint32_t o) { uint32_t v; std::memcpy(&v, M2_AL(c.work_ram + o, 4), 4); return v; }
 inline uint16_t wram_r16(const rt::Cpu &c, uint32_t o) { uint16_t v; std::memcpy(&v, M2_AL(c.work_ram + o, 2), 2); return v; }

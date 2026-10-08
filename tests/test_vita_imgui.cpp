@@ -29,7 +29,9 @@ void vita2d_draw_array_textured(const vita2d_texture *t, int, const vita2d_textu
     ++draws;
 }
 int main() {
-    vita::ImGuiVita ui; assert(ui.init());
+    vita::ImGuiVita ui;
+    const bool initialized = ui.init(); // (outside assert: NDEBUG builds must still initialize)
+    assert(initialized); (void)initialized;
     for (int frame = 0; frame < 3; ++frame) {
         used = frame == 2 ? sizeof(pool) : 0;
         ui.frame(1.f / 60);

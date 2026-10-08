@@ -1,6 +1,6 @@
 // m2tgprecomp: static recompiler for the TGP (Fujitsu MB86234) program.
 //
-//   m2tgprecomp TGP_PROGRAM.bin OUT.cpp
+//   m2tgprecomp TGP_PROGRAM.bin OUT.cpp [--fast_inaccuracy]
 //
 // The TGP has no ROM of its own: at boot the i960 uploads a program (2,024
 // words for Daytona, stored in the game's data ROM; scripts/m2import.py
@@ -16,12 +16,32 @@
 // such word is reachable by fall-through or a constant branch; if one is, the
 // recompile fails. Nothing is interpreted at run time.
 //
+// --fast_inaccuracy (off by default; scripts/recompile.py passes it to every
+// recompiler) adds a second copy of the program for the calls without an
+// instruction budget, the only kind the game makes (TgpBoard::run_tgp and
+// m2tgpcheck pass UINT64_MAX):
+//   * the instruction count is added once per basic block instead of after
+//     every instruction (t.count is read by nothing while the TGP runs);
+//   * no budget test before each branch and at the dispatch (with UINT64_MAX
+//     it can never fire).
+// The count stays exact at every return: a stall in the middle of a block
+// (input FIFO empty, the instruction runs again later) first adds the
+// instructions of the block already completed, and an entry in the middle of
+// a block through the dispatch switch (a return address, a computed branch,
+// the resume after a stall) first subtracts the ones it skipped. The
+// instruction after a rep is its own block (it counts once per repetition).
+// The TGP takes no interrupts, so results, FIFO traffic and counts are those
+// of the default output. A finite budget, or a hook (M2TGP_WITH_HOOK builds
+// with Tgp::hook set: m2tgpcheck's per-instruction check), takes the default
+// code, unchanged.
+//
 // The output is derived from the game: write it under build/ (git-ignored),
 // never commit it.
 
 #include "runtime/tgp.h"
 
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <iterator>
 #include <set>
@@ -60,7 +80,8 @@ struct Insn {
 
 std::string stall_check(uint32_t reg, uint32_t pc) {
     if ((reg & 0x3f) != 0x21) return "";
-    return " if (t.stall) { t.stall = false; t.pc = " + hx(pc) + "; return; }";
+    // @STALL@: --fast_inaccuracy's count correction before a stall return.
+    return " if (t.stall) { t.stall = false; t.pc = " + hx(pc) + ";@STALL@ return; }";
 }
 
 Insn decode(uint32_t pc, uint32_t o) {
@@ -237,8 +258,10 @@ Insn decode(uint32_t pc, uint32_t o) {
 } // namespace
 
 int main(int argc, char **argv) {
-    if (argc != 3) {
-        std::fprintf(stderr, "usage: m2tgprecomp TGP_PROGRAM.bin OUT.cpp\n");
+    bool fast = false;
+    if (argc == 4 && !std::strcmp(argv[3], "--fast_inaccuracy")) fast = true;
+    else if (argc != 3) {
+        std::fprintf(stderr, "usage: m2tgprecomp TGP_PROGRAM.bin OUT.cpp [--fast_inaccuracy]\n");
         return 2;
     }
     std::ifstream f(argv[1], std::ios::binary);
@@ -284,47 +307,116 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    // Basic blocks (--fast_inaccuracy). A block starts at the reset vector, at
+    // every constant branch target, after every transfer of control, at an
+    // instruction a rep repeats and after it, and around words that are not
+    // instructions. pos = instructions before it in its block, len = the
+    // block's length (meaningful at its last instruction).
+    std::vector<char> lead(n + 1, 0);
+    lead[0] = 1;
+    lead[n] = 1;
+    for (uint32_t pc = 0; pc < n; pc++) {
+        const Insn &in = ins[pc];
+        if (!in.known) { lead[pc] = 1; lead[pc + 1] = 1; continue; }
+        if (in.const_target >= 0 && uint32_t(in.const_target) < n) lead[uint32_t(in.const_target)] = 1;
+        if (in.const_target >= 0 || in.computed) lead[pc + 1] = 1;
+        if (in.is_rep) { lead[pc + 1] = 1; if (pc + 2 <= n) lead[pc + 2] = 1; }
+    }
+    std::vector<uint32_t> pos(n, 0), len(n, 1);
+    size_t blocks = 0;
+    for (uint32_t pc = 0, b = 0; pc < n; pc++) {
+        if (lead[pc]) b = pc, ++blocks;
+        pos[pc] = pc - b;
+    }
+    for (uint32_t pc = n; pc-- > 0;) len[pc] = !lead[pc + 1] ? len[pc + 1] : pos[pc] + 1;
+
+    auto with_stall = [](std::string body, const std::string &fix) {
+        for (size_t at; (at = body.find("@STALL@")) != std::string::npos;) body.replace(at, 7, fix);
+        return body;
+    };
+
+    // One copy of the program. counted: the default (count per instruction,
+    // budget, hook); otherwise --fast_inaccuracy's block-counted copy.
+    auto emit_program = [&](std::ostringstream &o, bool counted) {
+        o << "dispatch:\n";
+        if (counted) o << "    if (t.count >= budget) return;\n";
+        o << "    switch (t.pc) {\n";
+        for (uint32_t pc = 0; pc < n; pc++) {
+            o << "    case " << hx(pc) << ": ";
+            if (!counted && ins[pc].known && pos[pc]) o << "t.count -= " << pos[pc] << "u; ";
+            o << "goto L_" << std::hex << pc << std::dec << ";\n";
+        }
+        o << "    default: t.fatal(t.pc, \"control outside the recompiled program\");\n    }\n";
+        auto go = [&](uint32_t tgt) {
+            std::ostringstream g;
+            if (counted)
+                g << "{ if (t.count >= budget) { t.pc = " << hx(tgt) << "; return; } goto L_" << std::hex << tgt << std::dec << "; }";
+            else
+                g << "goto L_" << std::hex << tgt << std::dec << ";";
+            return g.str();
+        };
+        for (uint32_t pc = 0; pc < n; pc++) {
+            const Insn &in = ins[pc];
+            char head[64];
+            std::snprintf(head, sizeof head, "L_%x: // %03x: %08x", pc, pc, w[pc]);
+            o << head << (in.known ? "" : (" (" + in.why + ")")) << "\n";
+            if (!in.known) {
+                o << "    t.fatal(" << hx(pc) << ", \"word is not an instruction MAME implements\");\n";
+                continue;
+            }
+            const bool after_rep = pc > 0 && ins[pc - 1].known && ins[pc - 1].is_rep;
+            const bool block_end = lead[pc + 1] != 0;
+            std::string count;
+            if (counted) count = "++t.count; M2TGP_HOOK(" + hx(pc) + ");";
+            else if (block_end) count = len[pc] == 1 ? "++t.count;" : "t.count += " + std::to_string(len[pc]) + "u;";
+            const std::string fix = counted || !pos[pc] ? "" : " t.count += " + std::to_string(pos[pc]) + "u;";
+            o << "    { " << with_stall(in.body, fix) << "\n      " << count << "\n";
+            if (after_rep) o << "      if (t.r != 1) { t.r--; goto L_" << std::hex << pc << std::dec << "; }\n";
+            if (in.const_target >= 0) {
+                if (in.cond_branch) o << "      if (c) " << go(uint32_t(in.const_target)) << "\n";
+                else o << "      " << go(uint32_t(in.const_target)) << "\n";
+            } else if (in.computed) {
+                if (in.cond_branch) o << "      if (c) goto dispatch;\n";
+                else o << "      goto dispatch;\n";
+            }
+            o << "    }\n";
+            if (pc + 1 == n && (in.falls || in.is_rep)) o << "    t.pc = " << hx(n) << "; goto dispatch;\n";
+        }
+    };
+
     std::ostringstream o;
     o << "// Generated by m2tgprecomp from the TGP program the i960 uploads.\n"
-         "// Derived from the game: never commit.\n"
-         "#include \"runtime/tgp.h\"\n\n"
+         "// Derived from the game: never commit.\n";
+    if (fast) o << "// --fast_inaccuracy: block-counted copy for the calls without a budget.\n";
+    o << "#include \"runtime/tgp.h\"\n\n"
          "// Test builds (M2TGP_WITH_HOOK) call Tgp::hook after every instruction.\n"
          "#ifdef M2TGP_WITH_HOOK\n#define M2TGP_HOOK(pc) if (t.hook) t.hook(t, pc)\n#else\n#define M2TGP_HOOK(pc)\n#endif\n\n"
          "namespace rt::tgpgen {\n\n"
       << "const uint32_t program_crc32 = " << hx(crc32(raw)) << ";\n"
-      << "const uint32_t program_words = " << n << ";\n\n"
-      << "void run(Tgp &t, uint64_t budget) {\n"
-         "dispatch:\n    if (t.count >= budget) return;\n    switch (t.pc) {\n";
-    for (uint32_t pc = 0; pc < n; pc++) o << "    case " << hx(pc) << ": goto L_" << std::hex << pc << std::dec << ";\n";
-    o << "    default: t.fatal(t.pc, \"control outside the recompiled program\");\n    }\n";
-    auto go = [&](uint32_t tgt) {
-        std::ostringstream s;
-        s << "{ if (t.count >= budget) { t.pc = " << hx(tgt) << "; return; } goto L_" << std::hex << tgt << std::dec << "; }";
-        return s.str();
-    };
-    for (uint32_t pc = 0; pc < n; pc++) {
-        const Insn &in = ins[pc];
-        char head[64];
-        std::snprintf(head, sizeof head, "L_%x: // %03x: %08x", pc, pc, w[pc]);
-        o << head << (in.known ? "" : (" (" + in.why + ")")) << "\n";
-        if (!in.known) {
-            o << "    t.fatal(" << hx(pc) << ", \"word is not an instruction MAME implements\");\n";
-            continue;
-        }
-        const bool after_rep = pc > 0 && ins[pc - 1].known && ins[pc - 1].is_rep;
-        o << "    { " << in.body << "\n      ++t.count; M2TGP_HOOK(" << hx(pc) << ");\n";
-        if (after_rep) o << "      if (t.r != 1) { t.r--; goto L_" << std::hex << pc << std::dec << "; }\n";
-        if (in.const_target >= 0) {
-            if (in.cond_branch) o << "      if (c) " << go(uint32_t(in.const_target)) << "\n";
-            else o << "      " << go(uint32_t(in.const_target)) << "\n";
-        } else if (in.computed) {
-            if (in.cond_branch) o << "      if (c) goto dispatch;\n";
-            else o << "      goto dispatch;\n";
-        }
-        o << "    }\n";
-        if (pc + 1 == n && (in.falls || in.is_rep)) o << "    t.pc = " << hx(n) << "; goto dispatch;\n";
+      << "const uint32_t program_words = " << n << ";\n\n";
+    if (!fast) {
+        o << "void run(Tgp &t, uint64_t budget) {\n";
+        emit_program(o, true);
+        o << "}\n\n} // namespace rt::tgpgen\n";
+    } else {
+        o << "namespace {\n\n"
+          << "// Default code: count after every instruction, budget, hook.\n"
+          << "void run_counted(Tgp &t, uint64_t budget) {\n";
+        emit_program(o, true);
+        o << "}\n\n"
+          << "// --fast_inaccuracy: count once per basic block, no budget.\n"
+          << "void run_unbounded(Tgp &t) {\n";
+        emit_program(o, false);
+        o << "}\n\n} // namespace\n\n"
+          << "void run(Tgp &t, uint64_t budget) {\n"
+          << "#ifdef M2TGP_WITH_HOOK\n"
+          << "    if (budget == UINT64_MAX && !t.hook) { run_unbounded(t); return; }\n"
+          << "#else\n"
+          << "    if (budget == UINT64_MAX) { run_unbounded(t); return; }\n"
+          << "#endif\n"
+          << "    run_counted(t, budget);\n"
+          << "}\n\n} // namespace rt::tgpgen\n";
     }
-    o << "}\n\n} // namespace rt::tgpgen\n";
 
     std::ofstream out(argv[2]);
     out << o.str();
@@ -332,5 +424,8 @@ int main(int argc, char **argv) {
     for (auto &i : ins) known += i.known;
     std::printf("m2tgprecomp: %u words, %zu instructions MAME implements, %zu reachable by constant flow; all native\n", n,
                 known, seen.size());
+    if (fast)
+        std::printf("m2tgprecomp: --fast_inaccuracy: %zu basic blocks, %.2f words per block, unbudgeted calls count per block\n",
+                    blocks, double(n) / double(blocks));
     return 0;
 }

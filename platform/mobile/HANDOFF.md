@@ -1,5 +1,19 @@
 # Mobile port handoff
 
+## 2026-10-07: GPU startup compatibility and visible failures
+
+Rebased onto original upstream 0435a46. Shared GPU creation drops unused
+clip-distance, indirect-first-instance and anisotropy requirements. Depth
+clamping remains enabled because the current ImGui/game pipelines require it.
+No alternate shaders or OpenGL fallback. Errors now use a native SDL message
+box as well as SDL/APP logging; compiled GPU backend names are logged.
+Host mocked startup/failure tests and mobile syntax checks pass. This does
+not yet establish support on the reported Xiaomi Mali-G715 device. Capture
+SDL/GPU messages if it still fails; the original SDL/APP-only log omits the
+driver's feature rejection details.
+Android arm64 assembleDebug succeeds; APK archive integrity and signing
+verification pass. Physical-device startup remains unverified.
+
 ## 2026-10-06: shared touch driving
 
 Rebased onto main 10c85cb before finishing input work. Raw SDL touch events

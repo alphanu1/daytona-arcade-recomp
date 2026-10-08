@@ -1,5 +1,142 @@
 # Vita performance diagnostics
 
+## Measured follow-up: leak, silent FM, indexed quads, cleaner perf.log
+
+From a console perf.log with fine-grained probes (not kept in the sources):
+
+* **Lockstep callback leak (src/runtime/lockstep.cpp/.h).** `calls_` never released a
+  slot: `GameLoop::probe` re-arms itself every 1024 i960 instructions, so the console
+  kept +2,200 to +2,800 dead `std::function` per second (236,787 after 110 s, ~125 MB
+  per hour, plus a full copy of the vector at every doubling). A slot is now freed when
+  its callback runs and reused by the next `add_callback` (`M2_FAST_GEN`, the Vita
+  build, as the Dreamcast's `M2_DC_MEMORY` already did; the desktop is unchanged). A host replay of the
+  GameLoop/UART callback pattern gives the same callback sequence (858,543 callbacks,
+  same counts) with flat memory instead of 32 MB after 5 minutes.
+* **Silent FM not queued (audio.h).** The YM3438 output was zero in every window of
+  whole races, yet its resampling in `SDL_AudioStreamPut` cost ~1.65 ms per frame on
+  core 2. A silent block is no longer queued; the PCM stream sets the pace and the
+  callback adds the FM that is queued. FM that starts again is padded with the silence
+  it skipped so that it stays aligned on the PCM queue. Not silent FM is unchanged.
+* **Indexed quads (gpu_gl.cpp).** Polygons and
+  System 24 rectangles are written as groups of 4 vertices drawn through a static
+  16-bit index buffer {4q, 4q+1, 4q+2, 4q, 4q+2, 4q+3}: same triangles as the fans (an
+  odd fan ends with one degenerate triangle), 4 vertices per quad instead of 6 (95% of
+  the race polygons). Expected about a third less of the ~435 KB of vertices written per
+  race frame (~2.3 ms of core 0). Above 65,536 vertices in a frame, or without the index
+  buffer, batches fall back to plain triangles.
+* **perf.log reliability.** gl.log GPU samples (two `sceGxmFinish` every 60 frames,
+  30-50 ms each) were the only frame time spikes of the race: removed, gl.log no longer
+  has a GPU line. The gl.log write is reported as `logging`, no longer as `frame end`. The frontend clock reads
+  `sceKernelGetProcessTimeWide` directly (0.70 us per read instead of 1.39 us through SDL
+  and a 64-bit division), the same microseconds SDL returned.
+
+
+## Polygon recording: lookups and measurement
+
+* **No more `std::unordered_map` on the per-polygon path** (`flat_index.h`). The
+  palette row (looked up for nearly every polygon: the luma changes per face),
+  the batch (per material change) and the index texture (per material change)
+  went through `unordered_map`: a modulo by a prime per lookup, and the
+  Cortex-A9 has no divide instruction (library call), one heap node per entry
+  (cache misses), and the batch map freed and reallocated its nodes every
+  frame. Now power-of-two open-addressing tables: multiplicative hash, linear
+  probing in one array, O(1) clear, no allocation. `sources_` keeps the
+  textures (stable addresses) behind a lookup cache. Same results (host test
+  against `unordered_map`).
+* **perf.log** splits `polygon recording` with a new nested line `of which vertex
+  writing` (`flush_batches`: vertices into GPU memory). The rest of the line
+  is the material/palette pass. This decides the next step: if vertex writing
+  dominates, indexed triangles (quads: 4 vertices instead of 6) or moving it to
+  core 1; if the material pass dominates, that part must stay on core 0 (GL).
+* **perf.log averages are now per emulated frame** (they were per main-loop
+  iteration; since loops without a board frame skip all work, ~8 iterations per
+  frame divided every figure by ~8). The header shows `main loop N/s` instead of
+  the misleading "shown fps"; the csv column `shown_fps` is now `loops_per_s`.
+
+
+## Scene changes and audio crackles
+
+* **2D rewrites by rows (`system24_upload.h`).** The index-form uploader now
+  works by rows of 64 tiles: the changed tiles of a row are grouped into runs,
+  then each texel line is written run by run, 8 texels per step with NEON
+  (scalar fallback elsewhere, same texels). A full rewrite (scene change: 16384
+  tiles, ~8 MB) becomes 512-texel sequential lines instead of 8-texel pieces
+  2 KB apart, which suits the write-combined GPU memory, and the per-texel
+  branches are gone. Measured before: 45-57 ms per full rewrite on core 2 (the
+  main core waited for it). Host checks: identical texels and tile counts to the
+  per-tile form (sparse, dense, full, split, two texture sets alternating), the
+  NEON path through SIMDe and a Cortex-A9 cross-compile.
+* **Reference audio pacing (`audio_rate.h`, `audio.h`).** The emulation never
+  runs ahead of real time (lost time is dropped), so once a slow frame had eaten
+  the start-up cushion it was never rebuilt and every later slow frame crackled.
+  Now the output keeps a 64 ms cushion (plus a 512-frame device buffer instead of
+  1024): a controller plays very slightly slower or faster to hold it (at most
+  +0.5%, and down to -5% only while the emulation stays below full speed: the
+  sound follows the game's speed instead of crackling). After an underrun the
+  output stays silent until the cushion is back: one short gap instead of a
+  crackle at every callback. Simulated (`tests/test_vita_audio_rate.cpp`): no gap
+  with 30 ms late frames every 1.7 s, 20 ms every 0.5 s, or 96-97.5% speed for two
+  minutes; one gap per 100 ms hitch; rare gaps at 94% speed. Latency ~75 ms
+  (was ~64 ms at start-up). perf.log: `reference audio: N gaps, playback speed,
+  queue` under CORE 2.
+
+
+## vitaGL: 2D one frame late, prepared on core 2
+
+(The vita2d build keeps one set and the current frame's 2D: with colour tiles,
+two sets meant every tile and palette change uploaded twice, slower on the
+console.)
+
+The geometrizer is always pipelined on core 1. The 3D shown is the previous frame's, so the
+renderer now shows the previous frame's 2D too: 2D and 3D are in phase again,
+the whole picture one frame (17.4 ms) late.
+
+* Two sets of System 24 textures (8 layers + palette each, 2 x 8.03 MB). While
+  a frame emits the quads of the set prepared during the previous frame, the
+  `daytona_2d` thread (core 2, `DAYTONA_VITA_2D_CORE`, one priority step above
+  the sound thread) uploads this frame's changed tiles and palette into the
+  other set and computes the layer rectangles (`GpuGlRenderer::s24_prepare`).
+  Each set keeps its own generations: it catches up two frames of tile
+  changes at once (generations only grow).
+* The main core records the polygons meanwhile and waits for the worker at
+  the end of `draw()`, so the board never runs while Video is read; the set
+  being written was last drawn one frame earlier, and `gl_begin_frame()` has
+  already waited for the GPU.
+
+
+## vitaGL: stutters and repeated frames
+
+From the optimisation-candidate measurements (attract and menus: worst frames
+80-120 ms; race unaffected):
+
+* **System 24 layers as pen numbers.** The 8 layer textures now hold each
+  texel's pen as palette texture coordinates (column x2 in r, row x4 in g,
+  visibility in alpha); the Layer shader looks the colour up in a 128x64
+  palette texture on unit 2, with the same floor/lookup form as the Model 2
+  palette shader. A first form (13-bit pen decoded in the shader) crashed the
+  console's runtime shader compiler inside gl_init; this one compiles
+  (`system24_upload.h`: `upload_system24_layer_indices`,
+  `upload_system24_palette`). A palette change (fades, flashes) rewrites that
+  32 KB texture instead of all 16384 tiles (8 MB, ~67 ms each on the Vita,
+  up to 9 times in 5 s). Tiles are rewritten only when their pixels or
+  categories change, as before. Cost: one dependent texture read per Layer
+  pixel (~1.5 Mpixel/frame), on a GPU that measured 10-14 ms per frame.
+  The vita2d path keeps the colour form.
+* **Model 2 texture builds by texels.** At most 128 Ki texels decoded per
+  frame (`kSourceTexelBudget`; the first build of a frame always runs) as well
+  as at most 32 textures: 29 builds in one frame took 88 ms. The decoder reads
+  one texel instead of a 2x2 quad per texel (`texel_index.h`, ~4x faster on a
+  host, identical to `rt::read_texel_quad` on 4.3 million reads).
+* **No redraw without a new emulated frame.** A main-loop iteration that ran
+  no board frame (the host ahead of the 57.52 Hz board clock) no longer
+  renders and swaps the same picture again (~15 ms each, 6-9% of attract
+  loops); the screen keeps the last image.
+
+Host checks: `scripts/test_vita_renderer.py` (the index form decoded through
+the palette equals the colour form after tile, split and fade changes; a
+palette change rewrites no tile), `test_vita_texel_index`. Not yet measured
+on a console.
+
 ## Calibrated native output (GPU25 / 01.23)
 
 GPU24's 50% boost remained about 8.25 dB below reference RMS. GPU25 sets
@@ -65,9 +202,10 @@ them and append a bounded fault record to `vita-diag.log`. A quiet launch does
 not erase an existing log. This is a routine-diagnostics switch, not suppression
 of runtime faults. The older software-rendered diagnostic frontend is unchanged.
 
-Re-enable the GXM diagnostic build with `scripts/build_vita.py --gpu-fast
---diagnostics` (plus the usual SDK/build arguments), or set
-`-DDAYTONA_VITA_DIAGNOSTICS=ON` in the Vita CMake build. Default is OFF.
+`scripts/build_vita.py` has three builds: normal (no logs), `--diagnostics`
+(`-DDAYTONA_VITA_DIAGNOSTICS=ON`: all the logs) and `--release` (no logs +
+link-time optimization, `-DDAYTONA_VITA_LTO=ON`). Both CMake options default to
+OFF.
 Keep GPU22 for an unchanged diagnostic comparison.
 
 The supplied GPU22 device log contains 78 active windows covering 157.274 s,

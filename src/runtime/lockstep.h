@@ -31,7 +31,7 @@ public:
     // Call before each instruction. Returns true when the run is over or an
     // interrupt was taken (IP changed); the caller re-dispatches on m_IP.
     bool boundary() {
-#ifdef M2_DC_SPEED
+#ifdef M2_FAST_GEN
         // next_count is kept at or below end_count (refresh_next, set_end):
         // one compare (this is called before every instruction).
         if (count < next_count) return false;
@@ -40,7 +40,7 @@ public:
 #endif
         return apply();
     }
-#ifdef M2_DC_SPEED
+#ifdef M2_FAST_GEN
     // Set end_count (the game loop's frame end), keeping next_count at or
     // below it. A poke not yet taken is taken at the next boundary, as it
     // would have been: its next_count was at or below the count.
@@ -57,7 +57,7 @@ public:
     // starts. Free run: callbacks may add further callbacks.
     void add_callback(uint64_t at, std::function<void()> fn);
     // Free run: an interrupt line changed; take it at the next boundary.
-#ifdef M2_DC_SPEED
+#ifdef M2_FAST_GEN
     // The rewritten generated code keeps the instructions it has run since
     // it last added them to count in a register; before calling the runtime
     // it stores them here (one store, not a 64-bit add), and adds them to
@@ -97,14 +97,14 @@ private:
     size_t next_ = 0;
     bool free_run_ = false, poked_ = false;
     int taken_ = 0;
-#ifdef M2_DC_MEMORY
+#if defined(M2_DC_MEMORY) || defined(M2_FAST_GEN)
     // Slots of calls_ already called, for reuse: free run adds a callback
     // every 1024 instructions and calls_ never shrinks (16 bytes each on the
     // SH-4: 1 MB by frame 220 of the attract mode). Last, so the members the
     // generated code's inline boundary() and poke() use keep their offsets.
     std::vector<size_t> free_calls_;
 #endif
-#ifdef M2_DC_SPEED
+#ifdef M2_FAST_GEN
 public:
     uint32_t epoch = 0; // (last, like free_calls_)
 #endif

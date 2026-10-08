@@ -1,5 +1,33 @@
 # Handoff
 
+## Mobile upstream rebase and GPU startup diagnostics (2026-10-07)
+
+Rebased mobile onto original alphanu1 upstream/main 0435a46; recovery branch
+backup/mobile-before-gpu-20261007. Main/Vita/PSP refs are not modified.
+The Xiaomi Mali-G715 report exits normally from SDL_main after GPU creation
+fails, not an established native crash. API version alone cannot establish
+support; no device feature dump or physical phone is available here.
+
+Shared SDL_GPU creation now uses properties to opt out of unused shader clip
+distances, indirect-draw first-instance and anisotropy. Audited game shaders,
+samplers and pinned ImGui backend for usage. Depth clamping remains required:
+the current pipelines disable depth clipping, so merely disabling that device
+feature would be invalid. No shader fork or external dependency edits.
+fail() now snapshots the SDL error, logs it and opens an SDL native message
+box; dialog failure is logged too. Startup lists compiled GPU backends.
+These frontend changes follow the design's Platform layer section.
+
+Mock regression tests cover requested features, property/device failures,
+cleanup and error-message preservation even when logging changes SDL's error.
+Host app objects and mobile main syntax checks pass; GPU startup, pacing and
+TestHold tests pass. Xiaomi runtime compatibility and dialog appearance are
+not hardware-verified. Android build initially required matching ANDROID_HOME
+and ANDROID_SDK_ROOT; mismatched paths are a local configuration issue.
+Android assembleDebug succeeds with both SDK variables pointing to
+/home/boucy/Android/Sdk. The arm64 APK passes ZIP integrity and apksigner
+verification, contains libmain.so/libSDL3.so, and contains no ROM archives.
+Touch-control and mobile ROM-path regression tests also pass.
+
 ## Original upstream and platform test-menu integration (2026-10-06)
 
 Merged alphanu1/daytona-arcade-recomp main 1877da9 into the fork, not merely
