@@ -41,8 +41,12 @@ build-*/
 cmake-build-*/
 CMakeCache.txt
 CMakeFiles/
+logs/
 CMakeUserPresets.json
 compile_commands.json
+*.apk
+*.cmd
+*.cmake
 *.o
 *.a
 *.so
