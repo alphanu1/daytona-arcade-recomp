@@ -4,13 +4,13 @@ plugins {
 
 android {
     namespace 'com.boucydesigns.daytona'
-    compileSdk 37
+    compileSdk 36
     ndkVersion '28.2.13676358'
 
     defaultConfig {
         applicationId 'com.boucydesigns.daytona'
         minSdk 26
-        targetSdk 37
+        targetSdk 36
         versionCode 1
         versionName '0.1'
 
@@ -18,7 +18,7 @@ android {
             cmake {
                 arguments '-DCMAKE_BUILD_TYPE=Release',
                           "-DM2_GEN_ROOT=${rootProject.projectDir}/../../../build/gen"
-                targets 'daytona'
+                targets   'daytona'
                 cppFlags '-std=c++20'
             }
         }

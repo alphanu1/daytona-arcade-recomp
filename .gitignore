@@ -41,8 +41,11 @@ build-*/
 cmake-build-*/
 CMakeCache.txt
 CMakeFiles/
+logs/
 CMakeUserPresets.json
 compile_commands.json
+*.apk
+*.cmd
 *.o
 *.a
 *.so
@@ -56,6 +59,7 @@ compile_commands.json
 .ninja_log
 shadercache/
 *.spv
+zig-windows.cmake
 
 # ---- Editor / OS ----
 .idea/
