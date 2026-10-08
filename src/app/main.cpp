@@ -151,7 +151,22 @@ template <typename C> void save_file(const std::string &path, const C &from) {
 }
 
 int fail(const char *what) {
+	char msg[4096];
+
+    std::snprintf(
+        msg,
+        sizeof(msg),
+        "%s failed: %s",
+        what,
+        SDL_GetError());
+
+	SDL_Log("%s failed: %s", what, SDL_GetError());   // add this line
     std::fprintf(stderr, "daytona: %s: %s\n", what, SDL_GetError());
+	SDL_ShowSimpleMessageBox(
+	SDL_MESSAGEBOX_ERROR,
+	"Daytona Error",
+	msg,
+	nullptr);
     return 1;
 }
 
