@@ -50,7 +50,7 @@
     .\Setup-AndroidEnv.ps1
 
 .EXAMPLE
-    .\Setup-AndroidEnv.ps1 -InstallMissing
+    powershell -ExecutionPolicy Bypass -File .\Setup-AndroidEnv.ps1 -InstallMissing
 #>
 [CmdletBinding()]
 param(
