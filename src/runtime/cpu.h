@@ -33,6 +33,8 @@
 
 namespace rt {
 
+struct SceneryState;
+
 // Memory as the i960 sees it. Byte addresses, little-endian.
 class Bus {
 public:
@@ -44,6 +46,8 @@ public:
     virtual void write_byte(uint32_t addr, uint8_t data) = 0;
     virtual void write_word(uint32_t addr, uint16_t data) = 0;
     virtual void write_dword(uint32_t addr, uint32_t data) = 0;
+    // Only the standalone board opts in. Trace/parity buses stay untouched.
+    virtual SceneryState *scenery() { return nullptr; }
 
     // Handler flags at an address. MAME's ldl/ldt/ldq (and stores) advance the
     // address only where the region is flagged Cpu::BURST; elsewhere

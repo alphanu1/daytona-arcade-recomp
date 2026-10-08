@@ -333,6 +333,10 @@ target_link_libraries(traceinfo PRIVATE trace)
 
 enable_testing()
 
+add_executable(test_scenery tests/test_scenery.cpp src/runtime/enhance.cpp)
+target_include_directories(test_scenery PRIVATE src)
+add_test(NAME scenery COMMAND test_scenery)
+
 # Geometrizer clipping and display-list streaming (shared runtime code).
 add_executable(test_geo_clip tests/test_geo_clip.cpp)
 target_include_directories(test_geo_clip PRIVATE src)
@@ -383,6 +387,10 @@ add_test(NAME comm_board COMMAND test_comm_board)
 
 # Wheel and pedal bindings against SDL virtual joysticks.
 if(TARGET SDL3::SDL3-static)
+    add_executable(test_app_config tests/test_app_config.cpp src/app/config.cpp src/app/controls.cpp)
+    target_include_directories(test_app_config PRIVATE src)
+    target_link_libraries(test_app_config PRIVATE runtime SDL3::SDL3-static)
+    add_test(NAME app_config COMMAND test_app_config)
     add_executable(test_app_controls tests/test_app_controls.cpp src/app/controls.cpp src/app/ffb.cpp)
     target_include_directories(test_app_controls PRIVATE src)
     target_link_libraries(test_app_controls PRIVATE runtime SDL3::SDL3-static)

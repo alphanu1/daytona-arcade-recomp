@@ -9,6 +9,7 @@
 #include "runtime/enhance.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include "runtime/frame_profile.h"
 #include "runtime/gen_support.h"
@@ -97,6 +98,10 @@ public:
     static void set_draw_distance(int level) {
         Enhance::draw_distance = std::clamp(level, Enhance::kDrawMin, Enhance::kDrawMax);
     }
+    void set_draw_budget(uint32_t value) {
+        if (value > kMaxSceneryBudget) throw std::invalid_argument("polygon budget exceeds supported maximum");
+        board_->scenery()->custom_budget = value;
+    }
     // With widescreen, in 3D scenes: the tile backdrop stretched across the width (else plain sky margins).
     void set_stretch_backdrop(bool on) { board_->video().set_stretch_backdrop(on); }
     // Draw mode (enhancement): 0 every frame (the game's), 1 every 2nd, 2 every 3rd.
@@ -104,6 +109,10 @@ public:
     // With widescreen: the race HUD's side groups at the screen edges.
     void set_hud_edges(bool on) { board_->video().set_hud_edges(on); }
     static int wide_margin(double aspect) {
+        if (!std::isfinite(aspect) || aspect <= 0) return 0;
+        // Headless capture tools can exercise the scenery path at 32:9;
+        // the launcher keeps its supported choices at 21:9 and below.
+        aspect = std::min(aspect, 32.0 / 9.0);
         const int width = 2 * int(kHeight * aspect / 2 + 0.5);
         return width > kWidth ? (width - kWidth) / 2 : 0;
     }

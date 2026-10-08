@@ -3,7 +3,8 @@
 // m2run, whose dumps come from the software renderer: compare the two.
 //
 //   m2gpushot IMAGES_DIR FRAMES --dump DIR --every N [--inputs scripts/inputs/X.txt]
-//             [--aspect W:H [--hud-edges] [--stretch-backdrop]] [--scale N] [--nvram DIR]
+//             [--aspect W:H [--hud-edges] [--stretch-backdrop]] [--scale N] [--nvram DIR] [--dump-from FRAME]
+//             [--draw-distance N] [--draw-budget N] [--scenery-log FILE] [--original-selection]
 //   m2gpushot IMAGES_DIR FRAMES --bench [--inputs ...] [--aspect ...] [--scale N]
 //
 // --scale N: the internal resolution enhancement (1-4); dumps are N times
@@ -21,6 +22,7 @@
 #include "runtime/game_loop.h"
 #include "../common/input_script.h"
 #include "../common/nvram.h"
+#include "../common/scenery_log.h"
 
 #include <SDL3/SDL.h>
 
@@ -39,28 +41,43 @@ int main(int argc, char **argv) {
     }
     const std::string dir = argv[1];
     const uint64_t frames = std::strtoull(argv[2], nullptr, 10);
-    std::string dump_dir, inputs_path, nvram_dir;
-    uint64_t every = 0;
+    std::string dump_dir, inputs_path, nvram_dir, scenery_log_path;
+    uint32_t draw_budget = 0;
+    uint64_t every = 0, dump_from = 0;
     int scale = 1;
     double aspect = 0;
-    bool hud_edges = false, stretch = false, bench = false;
+    bool hud_edges = false, stretch = false, bench = false, original_selection = false;
     for (int i = 3; i < argc; i++) {
+        if (!std::strcmp(argv[i], "--draw-budget") && i + 1 == argc) {
+            std::fprintf(stderr, "m2gpushot: --draw-budget needs a value\n");
+            return 2;
+        }
         if (!std::strcmp(argv[i], "--bench")) bench = true;
         if (!std::strcmp(argv[i], "--hud-edges")) hud_edges = true;
         if (!std::strcmp(argv[i], "--stretch-backdrop")) stretch = true;
+        if (!std::strcmp(argv[i], "--original-selection")) original_selection = true;
     }
     for (int i = 3; i + 1 < argc; i += 2) {
         if (!std::strcmp(argv[i], "--hud-edges") || !std::strcmp(argv[i], "--stretch-backdrop") ||
-            !std::strcmp(argv[i], "--bench")) { i--; continue; }
+            !std::strcmp(argv[i], "--bench") || !std::strcmp(argv[i], "--original-selection")) { i--; continue; }
         if (!std::strcmp(argv[i], "--aspect")) {
             double a = 0, b = 0;
             if (std::sscanf(argv[i + 1], "%lf:%lf", &a, &b) == 2 && b > 0) aspect = a / b;
         }
         if (!std::strcmp(argv[i], "--dump")) dump_dir = argv[i + 1];
         else if (!std::strcmp(argv[i], "--every")) every = std::strtoull(argv[i + 1], nullptr, 10);
+        else if (!std::strcmp(argv[i], "--dump-from")) dump_from = std::strtoull(argv[i + 1], nullptr, 10);
         else if (!std::strcmp(argv[i], "--inputs")) inputs_path = argv[i + 1];
         else if (!std::strcmp(argv[i], "--nvram")) nvram_dir = argv[i + 1];
         else if (!std::strcmp(argv[i], "--scale")) scale = std::clamp(std::atoi(argv[i + 1]), 1, 4);
+        else if (!std::strcmp(argv[i], "--draw-distance")) rt::GameLoop::set_draw_distance(std::atoi(argv[i + 1]));
+        else if (!std::strcmp(argv[i], "--scenery-log")) scenery_log_path = argv[i + 1];
+        else if (!std::strcmp(argv[i], "--draw-budget")) {
+            if (!rt::parse_scenery_budget(argv[i + 1], draw_budget)) {
+                std::fprintf(stderr, "m2gpushot: --draw-budget needs 0 (Automatic) or 1..1000000\n");
+                return 2;
+            }
+        }
     }
     if (!bench && (dump_dir.empty() || !every)) {
         std::fprintf(stderr, "m2gpushot: --dump DIR and --every N (or --bench) are needed\n");
@@ -105,6 +122,10 @@ int main(int argc, char **argv) {
 
     try {
         rt::GameLoop game(dir);
+        game.set_draw_budget(draw_budget);
+        game.board().scenery()->original_selection = original_selection;
+        tools::SceneryLog scenery_log(scenery_log_path);
+        scenery_log.attach(game);
         if (!nvram_dir.empty()) tools::load_nvram(game, nvram_dir);
         game.board().video().set_external_3d(true, true);
         game.set_aspect(aspect);
@@ -127,6 +148,8 @@ int main(int argc, char **argv) {
                 const auto a = clk::now();
                 game.run_frame(script.at(game.board().frame()));
                 const auto b = clk::now();
+                if (game.board().frame() >= dump_from)
+                    scenery_log.write(game);
                 const rt::VideoProfile &vp = game.board().video().last_profile();
                 t_tile_cache += double(vp.tile_cache) * 1e-9;
                 t_tile_draw += double(vp.tile_draw) * 1e-9;
@@ -160,7 +183,8 @@ int main(int argc, char **argv) {
         }
         for (uint64_t f = 0; f < frames; f++) {
             game.run_frame(script.at(game.board().frame()));
-            if (game.board().frame() % every) continue;
+            if (game.board().frame() >= dump_from) scenery_log.write(game);
+            if (game.board().frame() < dump_from || game.board().frame() % every) continue;
             SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
             gpu.render(cmd, target, W, H, game.board().video(), scale);
             SDL_GPUCopyPass *copy = SDL_BeginGPUCopyPass(cmd);

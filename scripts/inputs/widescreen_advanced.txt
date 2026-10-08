@@ -1,0 +1,15 @@
+# Revision A replay with a single-cabinet NVRAM snapshot.
+# Course selection follows absolute wheel position: hold it through confirmation.
+# Verified: ADVANCED highlighted at 1500, course ID 2 while racing at 3600.
+frames 9000
+1200-1209 coin=1
+1240-1249 coin=1
+1280-1289 coin=1
+1400-1409 start=1
+1400-2100 steer=0xa0
+1600-1609 start=1
+1800-1809 vr1=1
+2000-2009 start=1
+2200-2209 vr1=1
+2400-2409 start=1
+1400-5999 accel=0xe0

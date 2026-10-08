@@ -226,6 +226,7 @@ void M2Board::set_link(LinkTransport *transport, bool framesync) {
 void M2Board::set_wide_margin(int pixels) {
     geo_->set_wide_margin(pixels);
     video_->set_wide_margin(pixels);
+    scenery_.width = video_->width();
 }
 
 void M2Board::vblank_end() {

@@ -18,6 +18,7 @@
 #include "runtime/lockstep.h"
 #include "runtime/m2_tgp_board.h"
 #include "runtime/video.h"
+#include "runtime/scenery.h"
 
 #include <array>
 #include <cstdint>
@@ -87,6 +88,7 @@ public:
     void write_word(uint32_t addr, uint16_t data) override;
     void write_dword(uint32_t addr, uint32_t data) override;
     uint16_t flags(uint32_t addr) override { return page(addr).burst ? Cpu::BURST : 0; }
+    SceneryState *scenery() override { return &scenery_; }
 
     // Frame control, called by the runner.
     void vblank_start();       // MAME screen_vblank: geometrizer, vblank IRQ
@@ -122,6 +124,7 @@ public:
 #endif
 
 private:
+    SceneryState scenery_;
     enum Kind : uint8_t { Unmapped, Rom, Ram, Tex, Dev };
     struct Page {
         Kind kind = Unmapped;

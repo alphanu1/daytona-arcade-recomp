@@ -102,6 +102,7 @@ uint64_t GameLoop::SoundPacket::execute() {
 
 void GameLoop::run_frame_deferred_sound(const Inputs &inputs) {
     if (sound_frame_pending_) throw Fatal("previous sound frame must complete before advancing the board");
+    board_->scenery()->measured = {};
     profiler_.reset();
     auto frame_sample = profiler_.measure(profiler_.frame.total);
     inputs_ = inputs;

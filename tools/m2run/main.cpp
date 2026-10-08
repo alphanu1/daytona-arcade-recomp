@@ -4,8 +4,19 @@
 //
 //   m2run IMAGES_DIR FRAMES [--inputs scripts/inputs/X.txt] [--dump DIR --every N] [--wav FILE]
 //         [--aspect W:H [--hud-edges] [--stretch-backdrop]] [--draw-distance N] [--frame-skip N]
-//         [--native-audio-check] [--nvram DIR] [--save-nvram DIR] [--link-listen PORT --link-next HOST:PORT [--link-sync]]
+//         [--dump-from FRAME] [--native-audio-check] [--nvram DIR] [--save-nvram DIR]
+//         [--link-listen PORT --link-next HOST:PORT [--link-sync]]
+//         [--draw-budget N] [--draw-order-only] [--original-selection] [--scenery-log FILE]
 //
+// --draw-budget is an override independent of --draw-distance:
+// 0 uses Automatic; e.g. --draw-distance 1 --draw-budget 5000 widens
+// cell selection while retaining the original budget. The launcher exposes
+// the same Automatic/Custom policy.
+// --draw-order-only retains the original cell membership but orders it as
+// the positive --draw-distance would; combine with --draw-budget 5000.
+// --original-selection disables only the new widescreen selection, for comparison.
+// --scenery-log writes JSON lines for EVERY frame at/after --dump-from, even
+// without image capture. Costs are game metadata, not visible polygon counts.
 // --nvram DIR starts from the app's saved settings EEPROM and backup RAM
 // (tools/common/nvram.h). --link-listen/--link-next: link play (the
 // communication board, Revision A) over TCP, as the app does: listen for the
@@ -28,7 +39,9 @@
 #include "runtime/game_loop.h"
 #include "../common/input_script.h"
 #include "runtime/native_sound_engine.h"
+#include "runtime/enhance_diagnostics.h"
 #include "../common/nvram.h"
+#include "../common/scenery_log.h"
 #include "app/link_socket.h"
 
 #include <algorithm>
@@ -83,31 +96,47 @@ int main(int argc, char **argv) {
     }
     const std::string dir = argv[1];
     const uint64_t frames = std::strtoull(argv[2], nullptr, 10);
-    std::string dump_dir, inputs_path, wav_path, nvram_dir, save_nvram_dir, link_next;
+    std::string dump_dir, inputs_path, wav_path, nvram_dir, save_nvram_dir, link_next, scenery_log_path;
     int link_listen = 0;
     bool link_sync = false, native_check = false;
-    uint64_t every = 0;
+    uint64_t every = 0, dump_from = 0;
     double aspect = 0;
     int frame_skip = 0;
-    bool hud_edges = false, stretch_backdrop = false;
+    bool hud_edges = false, stretch_backdrop = false, original_selection = false;
+    uint32_t draw_budget = 0;
     for (int i = 3; i < argc; i++) {
+        if (!std::strcmp(argv[i], "--draw-budget") && i + 1 == argc) {
+            std::fprintf(stderr, "m2run: --draw-budget needs a value\n");
+            return 2;
+        }
         if (!std::strcmp(argv[i], "--hud-edges")) hud_edges = true;
         if (!std::strcmp(argv[i], "--stretch-backdrop")) stretch_backdrop = true;
         if (!std::strcmp(argv[i], "--link-sync")) link_sync = true;
         if (!std::strcmp(argv[i], "--native-audio-check")) native_check = true;
+        if (!std::strcmp(argv[i], "--draw-order-only")) rt::EnhanceDiagnostics::draw_order_only = true;
+        if (!std::strcmp(argv[i], "--original-selection")) original_selection = true;
     }
     for (int i = 3; i + 1 < argc; i += 2) {
         if (!std::strcmp(argv[i], "--hud-edges") || !std::strcmp(argv[i], "--stretch-backdrop") ||
-            !std::strcmp(argv[i], "--link-sync") || !std::strcmp(argv[i], "--native-audio-check")) { i--; continue; }
+            !std::strcmp(argv[i], "--link-sync") || !std::strcmp(argv[i], "--native-audio-check") ||
+            !std::strcmp(argv[i], "--draw-order-only") || !std::strcmp(argv[i], "--original-selection")) { i--; continue; }
         if (!std::strcmp(argv[i], "--inputs")) inputs_path = argv[i + 1];
         else if (!std::strcmp(argv[i], "--dump")) dump_dir = argv[i + 1];
         else if (!std::strcmp(argv[i], "--every")) every = std::strtoull(argv[i + 1], nullptr, 10);
+        else if (!std::strcmp(argv[i], "--dump-from")) dump_from = std::strtoull(argv[i + 1], nullptr, 10);
         else if (!std::strcmp(argv[i], "--wav")) wav_path = argv[i + 1];
         else if (!std::strcmp(argv[i], "--nvram")) nvram_dir = argv[i + 1];
         else if (!std::strcmp(argv[i], "--save-nvram")) save_nvram_dir = argv[i + 1];
         else if (!std::strcmp(argv[i], "--link-listen")) link_listen = std::atoi(argv[i + 1]);
         else if (!std::strcmp(argv[i], "--link-next")) link_next = argv[i + 1];
         else if (!std::strcmp(argv[i], "--draw-distance")) rt::GameLoop::set_draw_distance(std::atoi(argv[i + 1]));
+        else if (!std::strcmp(argv[i], "--draw-budget")) {
+            if (!rt::parse_scenery_budget(argv[i + 1], draw_budget)) {
+                std::fprintf(stderr, "m2run: --draw-budget needs 0 (Automatic) or 1..1000000\n");
+                return 2;
+            }
+        }
+        else if (!std::strcmp(argv[i], "--scenery-log")) scenery_log_path = argv[i + 1];
         else if (!std::strcmp(argv[i], "--frame-skip")) frame_skip = std::atoi(argv[i + 1]);
         else if (!std::strcmp(argv[i], "--aspect")) {
             double w = 0, h = 0;
@@ -116,7 +145,13 @@ int main(int argc, char **argv) {
     }
 
     try {
+        if (rt::EnhanceDiagnostics::draw_order_only && rt::Enhance::draw_distance <= 0)
+            throw std::runtime_error("--draw-order-only needs positive --draw-distance");
+        tools::SceneryLog scenery_log(scenery_log_path);
         rt::GameLoop game(dir, !native_check);
+        game.set_draw_budget(draw_budget);
+        game.board().scenery()->original_selection = original_selection;
+        scenery_log.attach(game);
         std::unique_ptr<snd::NativeSoundEngine> native;
         if (native_check) {
             auto file = [&](const char *name) {
@@ -176,7 +211,9 @@ int main(int argc, char **argv) {
                 fm.insert(fm.end(), a.begin(), a.end());
                 pcm.insert(pcm.end(), b.begin(), b.end());
             }
-            if (!dump_dir.empty() && every && game.board().frame() % every == 0) {
+            if (game.board().frame() >= dump_from)
+                scenery_log.write(game);
+            if (!dump_dir.empty() && every && game.board().frame() >= dump_from && game.board().frame() % every == 0) {
                 char path[512];
                 std::snprintf(path, sizeof path, "%s/run_%05" PRIu64 ".rgb", dump_dir.c_str(), game.board().frame());
                 if (FILE *d = std::fopen(path, "wb")) {
