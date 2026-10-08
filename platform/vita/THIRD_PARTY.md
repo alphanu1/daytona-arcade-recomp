@@ -85,3 +85,25 @@ THIRD_PARTY.md (MIT). Its unmodified core provides widgets/font atlas; the
 Vita input and vita2d draw adapter is project code. The VPK includes
 licenses/imgui.txt. No proprietary shader compiler or additional plugin is
 needed for the menu; it uses libvita2d's existing public homebrew shaders.
+
+# vitaGL build (`--gpu-gl`)
+
+The vitaGL build links libraries that `scripts/setup_vitagl.py` fetches at pinned
+commits and builds into `extern/vitagl/` (git-ignored, never committed; their licence
+files are copied to `extern/vitagl/install/licenses/`):
+
+* vitaGL by Rinnegatamante (https://github.com/Rinnegatamante/vitaGL), LGPL-3.0;
+* vitaShaRK by Rinnegatamante (https://github.com/Rinnegatamante/vitaShaRK), LGPL-3.0;
+* math-neon by Lachlan Tychsen-Smith, Vita port by Rinnegatamante
+  (https://github.com/Rinnegatamante/math-neon), MIT;
+* SceShaccCgExt by Bythos (https://github.com/bythos14/SceShaccCgExt), **GPL-3.0**, required
+  by vitaShaRK.
+
+Without that directory the build falls back to the same libraries from the user's
+VitaSDK installation. Shaders are compiled at run time by the console's
+`libshacccg.suprx`, which the user installs; it is not distributed with the game. The same ImGui menu is drawn
+through vitaGL by project code (`imgui_vita.h`, `gl_ui_triangles` in
+`gpu_gl.cpp`). Distributing a VPK of this build statically linked to vitaGL
+carries the LGPL-3.0 obligations (allow relinking with a modified vitaGL). SceShaccCgExt
+is GPL-3.0: a distributed VPK that links it is a combined work under the GPL-3.0
+(corresponding source to be offered). The project's own source stays BSD-3-Clause.

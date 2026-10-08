@@ -173,7 +173,7 @@ void M2Board::map(uint32_t start, uint32_t end, Kind k, uint8_t *base, uint32_t 
 void M2Board::attach(Cpu &cpu, Lockstep &ls) {
     cpu_ = &cpu;
     ls_ = &ls;
-#ifdef M2_DC_SPEED
+#ifdef M2_FAST_GEN
     cpu.work_ram = work_.data(); // plain RAM: nothing watches its writes (ram_written)
 #endif
 }
@@ -279,7 +279,7 @@ void M2Board::uart_write_data(uint8_t v) {
     uart_txrdy(false);
     if (!uart_shift_busy_) {
         uart_shift_busy_ = true;
-#ifdef M2_DC_SPEED
+#ifdef M2_FAST_GEN
         ls_->add_callback(ls_->now() + 1, [this] { uart_shift_done(); }); // (now(): Lockstep::pending)
 #else
         ls_->add_callback(ls_->count + 1, [this] { uart_shift_done(); });

@@ -187,6 +187,6 @@ void benchmark() {
 }
 int main(int argc,char **argv) {
     if(argc>1 && std::string(argv[1])=="--bench"){benchmark();return 0;}
-    system24_upload_tests();cache_tests();video_tests(160);raster_tests(640);
+    system24_upload_tests();system24_index_tests();cache_tests();video_tests(160);raster_tests(640);
     std::puts("All renderer comparisons passed.");
 }

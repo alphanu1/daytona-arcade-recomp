@@ -205,6 +205,11 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/extern/sdl3/CMakeLists.txt)
     endif()
 
     # Dear ImGui (launcher UI), with its SDL3 and SDL_GPU backends
+    if(NOT ANDROID AND NOT IOS)
+        add_executable(test_gpu_startup tests/test_gpu_startup.cpp)
+        target_include_directories(test_gpu_startup PRIVATE src ${CMAKE_SOURCE_DIR}/extern/sdl3/include)
+        add_test(NAME gpu_startup COMMAND test_gpu_startup)
+    endif()
     set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/extern/imgui)
     add_library(imgui STATIC
         ${IMGUI_DIR}/imgui.cpp ${IMGUI_DIR}/imgui_draw.cpp ${IMGUI_DIR}/imgui_tables.cpp
@@ -401,6 +406,12 @@ if(M2_VITA_TESTS)
         extern/imgui/imgui_tables.cpp extern/imgui/imgui_widgets.cpp)
     target_include_directories(test_vita_imgui PRIVATE . tests/vita_gpu_shim extern/imgui)
     add_test(NAME vita_imgui COMMAND test_vita_imgui)
+    # The same menu through the vitaGL backend (GPU_GL builds), gpu_gl.h mocked.
+    add_executable(test_vita_imgui_gl tests/test_vita_imgui_gl.cpp
+        extern/imgui/imgui.cpp extern/imgui/imgui_draw.cpp
+        extern/imgui/imgui_tables.cpp extern/imgui/imgui_widgets.cpp)
+    target_include_directories(test_vita_imgui_gl PRIVATE . tests/vita_gl_shim tests/vita_gpu_shim src platform/vita extern/imgui)
+    add_test(NAME vita_imgui_gl COMMAND test_vita_imgui_gl)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         add_executable(test_vita_link tests/test_vita_link.cpp src/app/link_socket.cpp src/runtime/comm_board.cpp)
         target_include_directories(test_vita_link PRIVATE tests/vita_link_shim src)
@@ -427,6 +438,15 @@ if(M2_VITA_TESTS)
     add_executable(test_vita_polygon_order tests/test_vita_polygon_order.cpp)
     target_include_directories(test_vita_polygon_order PRIVATE platform/vita src)
     add_test(NAME vita_polygon_order COMMAND test_vita_polygon_order)
+
+    # The multicore/vitaGL helpers: texel index, flat index, reference audio pacing.
+    add_executable(test_vita_texel_index tests/test_vita_texel_index.cpp)
+    target_include_directories(test_vita_texel_index PRIVATE src)
+    add_test(NAME vita_texel_index COMMAND test_vita_texel_index)
+    add_executable(test_vita_flat_index tests/test_vita_flat_index.cpp)
+    add_test(NAME vita_flat_index COMMAND test_vita_flat_index)
+    add_executable(test_vita_audio_rate tests/test_vita_audio_rate.cpp)
+    add_test(NAME vita_audio_rate COMMAND test_vita_audio_rate)
 
     add_executable(test_vita_native_audio tests/test_vita_native_audio.cpp)
     target_include_directories(test_vita_native_audio PRIVATE tests/vita_audio_shim)

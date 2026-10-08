@@ -17,7 +17,7 @@ MAME-format `.zip` or `.7z`): `daytona93` (Daytona USA Deluxe '93) or
 | Windows, macOS, Linux | The main build; setup below | [docs/getting-started.md](docs/getting-started.md) |
 | Android | Works (arm64), with on-screen touch controls or a Bluetooth or USB controller; tested on a device | [platform/mobile](platform/mobile/README.md) |
 | iOS | Works on iPhone, installed through Xcode or AltStore, with touch controls or a controller; tested on a device | [platform/mobile](platform/mobile/README.md) |
-| PS Vita | Works: a native Vita app (SDL2); tested on a Vita | [platform/vita](platform/vita/README.md) |
+| PS Vita | Works: a native Vita app (SDL2); with vitaGL about 57.3 frames/s (the arcade runs 57.52) at CPU 444 / GPU 166 MHz, no overclocking plugin; tested on a Vita | [platform/vita](platform/vita/README.md), release build: [HOW_TO_COMPILE_RELEASE.md](HOW_TO_COMPILE_RELEASE.md) |
 | Dreamcast | Runs in the Flycast emulator with sound and the controller, about 32 frames/s (the arcade runs 57.52); not yet on a console; in progress | [platform/dreamcast](platform/dreamcast/README.md) |
 
 Every port starts from the desktop setup: the game code is generated on a
@@ -78,7 +78,15 @@ Linux and macOS).
 
 After changing the recompiler or the seeds: `python3 scripts/recompile.py`
 (and `python3 scripts/recompile.py --set daytona --build-dir build-daytona`
-for Revision A). Revision A is `build-daytona/daytona`, with its own
+for Revision A). `--fast_inaccuracy` (off by default)
+turns on the recompilers' speed options: the i960 code's interrupt checks and
+instruction count once per basic block instead of per instruction, direct
+chaining between the generated files, and the TGP's instruction count once
+per basic block. It loses precision (interrupts come a few instructions later
+than in MAME, so MAME lockstep and trace comparisons need the default output)
+but runs faster, above all on the PS Vita (`scripts/build_vita.py
+--fast-inaccuracy` makes the Vita's own code that way, see
+[platform/vita/README.md](platform/vita/README.md)). Revision A is `build-daytona/daytona`, with its own
 settings and saves. Its factory settings are a linked twin cabinet, which
 waits for a second cabinet: set a single cabinet once in test mode (F2).
 

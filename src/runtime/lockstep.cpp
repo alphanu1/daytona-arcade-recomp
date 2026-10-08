@@ -42,13 +42,13 @@ Lockstep::Lockstep(Cpu &core) : core_(core), free_run_(true) {
 void Lockstep::refresh_next() {
     next_count = next_ < log_.size() ? log_[next_].count : UINT64_MAX;
     if (next_ < log_.size() && log_[next_].kind == Event::Pend) next_count += 1; // checked after it should happen
-#ifdef M2_DC_SPEED
+#ifdef M2_FAST_GEN
     next_count = std::min(next_count, end_count); // boundary() compares next_count only
     ++epoch;
 #endif
 }
 
-#ifdef M2_DC_SPEED
+#ifdef M2_FAST_GEN
 uint32_t Lockstep::check(uint32_t ip) {
     core_.m_IP = ip;
     if (boundary()) return 0;
@@ -66,7 +66,7 @@ bool Lockstep::apply() {
         if (e.kind == Event::Call) {
             const size_t fn = e.fn; // the callback may add events (e moves)
             ++next_;
-#ifdef M2_DC_MEMORY
+#if defined(M2_DC_MEMORY) || defined(M2_FAST_GEN)
             // Each callback runs once: take it out (it may add the next one,
             // which can reuse its slot) and free the slot.
             auto call = std::move(calls_[fn]);
@@ -110,7 +110,7 @@ void Lockstep::add_callback(uint64_t at, std::function<void()> fn) {
     Event e{};
     e.kind = Event::Call;
     e.count = at;
-#ifdef M2_DC_MEMORY
+#if defined(M2_DC_MEMORY) || defined(M2_FAST_GEN)
     if (!free_calls_.empty()) {
         e.fn = free_calls_.back();
         free_calls_.pop_back();

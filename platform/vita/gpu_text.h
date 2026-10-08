@@ -1,9 +1,21 @@
 #pragma once
+#if defined(DAYTONA_VITA_GPU_GL) && DAYTONA_VITA_GPU_GL
+#include "gpu_gl.h"
+#else
 #include <vita2d.h>
+#endif
 #include <cctype>
 #include <cstdint>
 #include <string_view>
 namespace vita {
+// One rectangle backend for the menu font: vitaGL's recorded draw list or libvita2d.
+inline void fill_rect(float x, float y, float w, float h, unsigned color) {
+#if defined(DAYTONA_VITA_GPU_GL) && DAYTONA_VITA_GPU_GL
+    gl_fill_rect(x, y, w, h, color);
+#else
+    vita2d_draw_rectangle(x, y, w, h, color);
+#endif
+}
 inline void gpu_text(std::string_view value, int x, int y, unsigned color, int scale = 2, int columns = 74, int lines = 8) {
     struct Glyph { char character; uint8_t rows[7]; };
     static constexpr Glyph font[] = {
@@ -34,8 +46,8 @@ inline void gpu_text(std::string_view value, int x, int y, unsigned color, int s
         for (const auto &glyph : font) if (glyph.character == c) {
             for (int row = 0; row < 7; ++row) for (int bit = 0; bit < 5; ++bit)
                 if (glyph.rows[row] & (16 >> bit))
-                    vita2d_draw_rectangle(float(x + (column * 6 + bit) * scale), float(y + (line * 9 + row) * scale),
-                                          float(scale), float(scale), color);
+                    fill_rect(float(x + (column * 6 + bit) * scale), float(y + (line * 9 + row) * scale),
+                              float(scale), float(scale), color);
             break;
         }
         ++column;

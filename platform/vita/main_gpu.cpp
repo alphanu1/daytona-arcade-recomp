@@ -7,7 +7,18 @@
 #include "controls.h"
 #include "diagnostic_log.h"
 #include "async_log.h"
+#include "core_policy.h"
+#include "core_profile.h"
+// Renderer selection (CMake: DAYTONA_VITA_GPU_FAST -> libvita2d, DAYTONA_VITA_GPU_GL -> vitaGL).
+// Both initialise sceGxm, so exactly one is linked into a given build.
+#ifndef DAYTONA_VITA_GPU_GL
+#define DAYTONA_VITA_GPU_GL 0
+#endif
+#if DAYTONA_VITA_GPU_GL
+#include "gpu_gl.h"
+#else
 #include "gpu_fast.h"
+#endif
 #include "gpu_text.h"
 #include "imgui_vita.h"
 #include "runtime/game_loop.h"
@@ -20,8 +31,12 @@
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
 #include <psp2/kernel/processmgr.h>
+#include <psp2/kernel/cpu.h>
+#include <psp2/kernel/threadmgr.h>
 #include <psp2/power.h>
+#if !DAYTONA_VITA_GPU_GL
 #include <vita2d.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -37,11 +52,76 @@
 #ifndef DAYTONA_VITA_DIAGNOSTICS
 #define DAYTONA_VITA_DIAGNOSTICS 0
 #endif
+// The multicore flow, the same in every GPU build (vita2d or vitaGL):
+//   main thread      i960 + TGP, 2D video, sound hand-off, GPU recording   core 0
+//   geometry thread  the geometrizer, always pipelined: the 3D of frame N-1 is drawn
+//                    with frame N (platform/vita/src/runtime/geo.h)        core 1
+//   sound worker     the reference (emulated) sound board                  core 2
+//   vitaGL 2D worker System 24 uploads + layer rectangles (gpu_gl.cpp)     core 2
+// vitaGL draws the 2D layers of frame N-1 too (two texture sets, gpu_gl.cpp): the picture
+// is the exact one, one frame late. vita2d draws frame N's 2D (one texture set, no double
+// upload: the faster choice there), one frame ahead of the 3D. -1 = unpinned: scripts/build_vita.py --free-core leaves every thread
+// free, and the optional fourth core usable by all of them (core_policy.h). If the
+// geometry thread cannot be created, Geo stays on the main core and the fault is logged.
+#ifndef DAYTONA_VITA_MAIN_CORE
+#define DAYTONA_VITA_MAIN_CORE 0
+#endif
+#ifndef DAYTONA_VITA_GEO_CORE
+#define DAYTONA_VITA_GEO_CORE 1
+#endif
+#ifndef DAYTONA_VITA_SOUND_CORE
+#define DAYTONA_VITA_SOUND_CORE 2
+#endif
 
-extern "C" { unsigned int _newlib_heap_size_user = 192 * 1024 * 1024; }
+// Read by newlib (not LTO code): kept by "used" in the release (LTO) build.
+extern "C" { __attribute__((used)) unsigned int _newlib_heap_size_user = 192 * 1024 * 1024; }
 
 namespace {
+// ---- Graphics backend glue: the only place that knows vita2d from vitaGL ----
+#if DAYTONA_VITA_GPU_GL
+using Renderer = vita::GpuGlRenderer;
+constexpr const char *kGfxApi = "VITAGL";
+constexpr const char *kRendererName = "VITAGL";
+constexpr const char *kGfxLabel = "GRAPHICS API: VITAGL";
+// Widescreen (aspect, HUD at the edges, stretched backdrop) is drawn by the GXM renderer
+// only for now: the vitaGL build keeps the original 4:3 picture.
+constexpr bool kWidescreen = false;
+bool gfx_init(const char *&error) {
+    if (!vita::gl_init()) { error = vita::gl_error(); return false; }
+    return true;
+}
+void gfx_begin() { vita::gl_begin_frame(); }   // clears colour + depth
+void gfx_end() { vita::gl_end_frame(); }       // replays the draw list and swaps
+void gfx_idle() { glFinish(); }
+void gfx_fini() { vita::gl_fini(); }
+#else
+using Renderer = vita::GpuFastRenderer;
+constexpr const char *kGfxApi = "GXM";
+constexpr const char *kRendererName = "VITA2D";
+constexpr const char *kGfxLabel = "GRAPHICS API: GXM (VITA2D)";
+constexpr bool kWidescreen = true;
+bool gfx_init(const char *&error) {
+    if (vita2d_init_advanced(8 * 1024 * 1024) < 0) { error = "vita2d init failed"; return false; }
+    vita2d_set_vblank_wait(1);
+    vita2d_set_clear_color(RGBA8(0,0,0,255));
+    return true;
+}
+void gfx_begin() { vita2d_start_drawing(); vita2d_clear_screen(); }
+void gfx_end() { vita2d_end_drawing(); vita2d_swap_buffers(); }
+void gfx_idle() { vita2d_wait_rendering_done(); }
+void gfx_fini() { vita2d_fini(); }
+#endif
+
 constexpr bool kDiagnostics = DAYTONA_VITA_DIAGNOSTICS != 0;
+// Every log file (vita-diag.log periodic lines, perf.log, gl.log) and the profiling
+// clocks exist only in diagnostic builds: scripts/build_vita.py --diagnostics.
+// Faults are always appended to vita-diag.log.
+constexpr bool kPerfLog = kDiagnostics;
+constexpr bool kProfile = kDiagnostics;
+constexpr int kMainCore = DAYTONA_VITA_MAIN_CORE, kGeoCore = DAYTONA_VITA_GEO_CORE,
+              kSoundCore = DAYTONA_VITA_SOUND_CORE;
+constexpr bool kPinnedCores = kMainCore >= 0 || kGeoCore >= 0 || kSoundCore >= 0;
+constexpr double kPerfWindowSeconds = 5.0;
 constexpr const char *kDirectory = "ux0:data/" M2_ROMSET;
 constexpr const char *kRom = "ux0:data/" M2_ROMSET "/" M2_ROMSET ".zip";
 constexpr const char *kConfig = "ux0:data/" M2_ROMSET "/vita.cfg";
@@ -98,15 +178,36 @@ rt::Inputs map_input(const vita::Input &in) {
     return out;
 }
 
-uint64_t ticks_us() {
-    const uint64_t f = SDL_GetPerformanceFrequency();
-    return f ? SDL_GetPerformanceCounter() * 1000000ull / f : 0;
-}
+// Microseconds. SDL2's Vita performance counter is this same call at 1 MHz; calling it
+// directly skips SDL and a 64-bit division per read (measured 1.39 us per read through SDL,
+// 0.70 us direct): the profiling clocks of a diagnostics build cost half as much.
+uint64_t ticks_us() { return sceKernelGetProcessTimeWide(); }
 
 // Measurement only; never use this clock to pace game or audio playback.
 uint64_t diagnostic_ticks_us() {
-    return kDiagnostics ? ticks_us() : 0;
+    return kProfile ? ticks_us() : 0;
 }
+
+// Clocks of a first launch (no saved settings) and of "defaults": the vitaGL build starts
+// at CPU 444 / GPU 166 MHz, the vita2d build at the stock 333 / 111. The options menu
+// changes them, and the saved choice wins on the next launches. Override at build time
+// with -DDAYTONA_VITA_DEFAULT_CPU_MHZ=... / -DDAYTONA_VITA_DEFAULT_GPU_MHZ=...
+#ifndef DAYTONA_VITA_DEFAULT_CPU_MHZ
+#if DAYTONA_VITA_GPU_GL
+#define DAYTONA_VITA_DEFAULT_CPU_MHZ 444
+#else
+#define DAYTONA_VITA_DEFAULT_CPU_MHZ 333
+#endif
+#endif
+#ifndef DAYTONA_VITA_DEFAULT_GPU_MHZ
+#if DAYTONA_VITA_GPU_GL
+#define DAYTONA_VITA_DEFAULT_GPU_MHZ 166
+#else
+#define DAYTONA_VITA_DEFAULT_GPU_MHZ 111
+#endif
+#endif
+constexpr int kDefaultCpuClock = DAYTONA_VITA_DEFAULT_CPU_MHZ;
+constexpr int kDefaultGpuClock = DAYTONA_VITA_DEFAULT_GPU_MHZ;
 
 struct VitaSettings {
     bool revision_a = std::strcmp(M2_ROMSET, "daytona") == 0;
@@ -117,8 +218,8 @@ struct VitaSettings {
         return std::to_string(next_ip[0]) + "." + std::to_string(next_ip[1]) + "." +
             std::to_string(next_ip[2]) + "." + std::to_string(next_ip[3]);
     }
-    int cpu_clock = 333;
-    int gpu_clock = 111;
+    int cpu_clock = kDefaultCpuClock;
+    int gpu_clock = kDefaultGpuClock;
     int volume = 80;
     int deadzone = 12;
     int aspect = 0, draw_distance = 0, steer_curve = 0;
@@ -141,8 +242,12 @@ struct VitaSettings {
         };
         static const int cpus[] = {111, 222, 333, 444, 500};
         static const int gpus[] = {41, 77, 111, 166};
-        cpu_clock = valid(cpu_clock, cpus, 5, 333);
-        gpu_clock = valid(gpu_clock, gpus, 4, 111);
+        cpu_clock = valid(cpu_clock, cpus, 5, kDefaultCpuClock);
+        gpu_clock = valid(gpu_clock, gpus, 4, kDefaultGpuClock);
+        static_assert(kDefaultCpuClock == 111 || kDefaultCpuClock == 222 || kDefaultCpuClock == 333 ||
+                      kDefaultCpuClock == 444 || kDefaultCpuClock == 500, "CPU default must be a menu choice");
+        static_assert(kDefaultGpuClock == 41 || kDefaultGpuClock == 77 || kDefaultGpuClock == 111 ||
+                      kDefaultGpuClock == 166, "GPU default must be a menu choice");
         volume = std::clamp(volume, 0, 100);
         deadzone = std::clamp(deadzone, 0, 40);
         aspect = std::clamp(aspect, 0, 3);
@@ -200,6 +305,29 @@ struct VitaSettings {
     }
 };
 
+// Difference of two cumulative geometrizer statistics (maxima are not differenced).
+rt::Geo::Stats geo_stats_delta(const rt::Geo::Stats &now, const rt::Geo::Stats &before) {
+    rt::Geo::Stats d;
+    d.parse_calls = now.parse_calls - before.parse_calls;
+    d.inline_ticks = now.inline_ticks - before.inline_ticks;
+    d.jobs = now.jobs - before.jobs;
+    d.worker_ticks = now.worker_ticks - before.worker_ticks;
+    d.latency_ticks = now.latency_ticks - before.latency_ticks;
+    d.snapshot_ticks = now.snapshot_ticks - before.snapshot_ticks;
+    d.wait_ticks = now.wait_ticks - before.wait_ticks;
+    d.blocked_waits = now.blocked_waits - before.blocked_waits;
+    d.count_reads = now.count_reads - before.count_reads;
+    d.polys = now.polys - before.polys;
+    d.failures = now.failures - before.failures;
+    return d;
+}
+
+// The game's geometrizer (platform/vita/src/runtime/geo.h), found from its
+// board's TGP buffer RAM: M2Board itself is the unmodified shared runtime.
+rt::Geo *geometry_of(rt::GameLoop *game) {
+    return game ? rt::Geo::find(game->board().tgp().buffer_data()) : nullptr;
+}
+
 int cycle_value(int value, const int *choices, int count, int direction) {
     int index = 0;
     for (int i = 0; i < count; ++i) if (choices[i] == value) index = i;
@@ -213,8 +341,8 @@ void draw_menu(bool have_game, bool &options, int &selection, const VitaSettings
     ImGui::SetNextWindowPos({12, 12});
     ImGui::SetNextWindowSize({936, 520});
     ImGui::Begin("Daytona USA", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
-    ImGui::Text("Daytona USA | %.1f FPS | CPU %d MHz | GPU %d MHz", fps,
-                scePowerGetArmClockFrequency(), scePowerGetGpuClockFrequency());
+    ImGui::Text("Daytona USA | %.1f FPS | CPU %d MHz | GPU %d MHz | %s", fps,
+                scePowerGetArmClockFrequency(), scePowerGetGpuClockFrequency(), kGfxApi);
     if (ImGui::Button("Game")) { options = false; selection = 0; }
     ImGui::SameLine();
     if (ImGui::Button("Options")) { options = true; selection = 0; }
@@ -252,7 +380,7 @@ void draw_menu(bool have_game, bool &options, int &selection, const VitaSettings
     std::snprintf(invert, sizeof invert, "INVERT STEERING: %s", settings.steer_invert ? "ON" : "OFF");
     values[0]=cpu; values[1]=gpu; values[2]=volume; values[3]=mute; values[4]=deadzone; values[5]=invert;
     values[6]=settings.native_audio ? "AUDIO ENGINE: NATIVE (TEST)" : "AUDIO ENGINE: REFERENCE";
-    values[7]="GRAPHICS API: GXM"; values[8]="FULLSCREEN: ON";
+    values[7]=kGfxLabel; values[8]="FULLSCREEN: ON";
     values[9]=settings.revision_a ? "ROM: DAYTONA (1994 REVISION A)" : "ROM: DAYTONA93 (1993)";
     values[10]="BINDS: SELECT+TRIANGLE TEST / SELECT+SQUARE SERVICE";
     static const char* aspects[] = {"ASPECT: ORIGINAL", "ASPECT: 16:10", "ASPECT: 16:9", "ASPECT: 21:9"};
@@ -267,6 +395,11 @@ void draw_menu(bool have_game, bool &options, int &selection, const VitaSettings
     values[16]=settings.skip_launcher ? "SKIP LAUNCHER: ON" : "SKIP LAUNCHER: OFF";
     static const char* curves[] = {"STEERING CURVE: LINEAR", "STEERING CURVE: SOFT", "STEERING CURVE: EXTRA SOFT"};
     values[14]=curves[settings.steer_curve];
+    if (!kWidescreen) { // the vitaGL build draws the original 4:3 picture only (for now)
+        values[11]="ASPECT: ORIGINAL (WIDESCREEN: GXM BUILD)";
+        values[12]="HUD: CENTRED (WIDESCREEN: GXM BUILD)";
+        values[15]="STRETCH TILE BACKGROUND: N/A (GXM BUILD)";
+    }
 
             for (int i = 0; i < 29; ++i) {
                 ImGui::PushID(i);
@@ -318,6 +451,17 @@ int main(int, char **) {
     log.log("GPU25 clocks: requested_cpu=%d requested_gpu=%d arm=%d bus=%d gpu=%d xbar=%d cpu_before=%d gpu_before=%d set_cpu=%d set_gpu=%d\n",
             settings.cpu_clock, settings.gpu_clock, arm_clock, bus_clock, gpu_clock, xbar_clock,
             arm_clock_before, gpu_clock_before, cpu_clock_result, gpu_clock_result);
+    // Core placement: the main thread (i960, TGP, 2D video, GPU submission)
+    // owns one application core; geometry and sound get the other two.
+    const SceUID main_thread = sceKernelGetThreadId();
+    const int main_home_mask = vita::core_pin_mask(kMainCore);
+    const int main_affinity_before = sceKernelGetThreadCpuAffinityMask(main_thread);
+    const int main_affinity_result = main_home_mask
+        ? sceKernelChangeThreadCpuAffinityMask(main_thread, main_home_mask) : 0;
+    const int main_affinity = sceKernelGetThreadCpuAffinityMask(main_thread);
+    log.log("GPU25 cores: %s main requested=%d before=0x%x result=%d mask=0x%x priority=%d\n",
+            kPinnedCores ? "pinned" : "free", kMainCore, unsigned(main_affinity_before), main_affinity_result,
+            unsigned(main_affinity), sceKernelGetThreadCurrentPriority());
     log.literal("GPU25 stage: SDL timer/audio init begin\n");
     SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_TIMER | SDL_INIT_AUDIO) != 0) {
@@ -325,28 +469,34 @@ int main(int, char **) {
         restore_clocks();
         return 1;
     }
-    log.literal("GPU25 stage: SDL init done; vita2d init begin\n");
-    if (vita2d_init_advanced(8 * 1024 * 1024) < 0) {
-        log.fault("GPU25: vita2d/GXM initialization failed\n");
+    log.literal("GPU25 stage: SDL init done; graphics init begin\n");
+    const char *gfx_error = "";
+    if (!gfx_init(gfx_error)) {
+        log.fault("GPU25: %s initialization failed: %s\n", kGfxApi, gfx_error);
         SDL_Quit();
         restore_clocks();
         return 1;
     }
-    log.literal("GPU25 stage: vita2d init done; framebuffer textures begin\n");
-    vita2d_set_vblank_wait(1);
-    vita2d_set_clear_color(RGBA8(0,0,0,255));
+    log.literal("GPU25 stage: graphics init done; framebuffer textures begin\n");
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
     vita::ImGuiVita ui;
     if (!ui.init()) {
         log.fault("ImGui font texture allocation failed\n");
-        vita2d_fini(); SDL_Quit(); restore_clocks(); return 1;
+        gfx_fini(); SDL_Quit(); restore_clocks(); return 1;
     }
 
-    vita::GpuFastRenderer gpu;
+    Renderer gpu;
     if (!gpu.ok()) {
         log.fault("GPU25: framebuffer texture allocation failed\n");
-        gpu.shutdown(); ui.shutdown(); vita2d_fini(); SDL_Quit(); restore_clocks(); return 1;
+        gpu.shutdown(); ui.shutdown(); gfx_fini(); SDL_Quit(); restore_clocks(); return 1;
     }
+#if DAYTONA_VITA_GPU_GL
+    if (gpu.worker_2d_threaded())
+        log.log("GPU25 2D worker: thread on core %d\n", gpu.worker_2d_core());
+    else
+        log.fault("GPU25 2D worker: thread unavailable (result=%d), 2D prepared on the main core\n",
+                  gpu.worker_2d_result());
+#endif
     log.log("GPU25 stage: GPU texture arenas ready: reserved_mb=%.2f; audio begin\n", double(gpu.reserved_bytes()) / (1024.0 * 1024.0));
     vita::Audio audio;
     vita::NativeAudio<snd::NativeSoundEngine> native_audio;
@@ -362,16 +512,56 @@ int main(int, char **) {
     // the worker has drained. Only one sound packet may be in flight.
     rt::GameLoop::SoundPacket active_sound;
     vita::SoundWorker sound_worker;
+    // Reference sound board on its own core (0: unpinned, the fourth-core policy).
+    sound_worker.set_cpu_mask(vita::core_pin_mask(kSoundCore));
     sound_worker.open();
     log.log("GPU25 sound worker: threaded=%d affinity_result=%d affinity_mask=0x%x\n",
             int(sound_worker.threaded()), sound_worker.affinity_result(), sound_worker.affinity_mask());
+
+    // Per-core profiling (perf.log, diagnostics builds). Reports cover gameplay only.
+    vita::CoreProfiler core_profile;
+    vita::PerfLog perf_file;
+    unsigned perf_index = 0;
+    unsigned audio_gaps_seen = 0; // reference audio underruns already reported
+    uint64_t perf_log_pending_us = 0; // report formatting time, charged to the next window
+    const rt::Geo *geo_seen = nullptr;
+    rt::Geo::Stats geo_prev;
+    // Per-loop geometry statistics; re-baselined when the board changes.
+    auto take_geo_delta = [&]() -> rt::Geo::Stats {
+        const rt::Geo *geo = geometry_of(game.get());
+        if (geo != geo_seen || !geo || geo->stats().parse_calls < geo_prev.parse_calls) {
+            geo_seen = geo;
+            geo_prev = geo ? geo->stats() : rt::Geo::Stats{};
+            return {};
+        }
+        const rt::Geo::Stats d = geo_stats_delta(geo->stats(), geo_prev);
+        geo_prev = geo->stats();
+        return d;
+    };
+    if constexpr (kPerfLog) {
+        if (perf_file.open()) {
+            char text[1536];
+            int n = std::snprintf(text, sizeof text,
+                "start: renderer=%s cores=%s profile_window=%.0fs | main core=%d mask=0x%x result=%d | geometry core=%d | "
+                "sound core=%d threaded=%d mask=0x%x result=%d\n",
+                kRendererName, kPinnedCores ? "pinned" : "free", kPerfWindowSeconds, kMainCore, unsigned(main_affinity),
+                main_affinity_result, kGeoCore, kSoundCore, int(sound_worker.threaded()),
+                unsigned(sound_worker.affinity_mask()), sound_worker.affinity_result());
+            if (n < 0) n = 0;
+            n = std::min(n, int(sizeof text) - 1);
+            n += int(vita::CoreProfiler::format_csv_header(text + n, sizeof text - size_t(n)));
+            perf_file.submit(text, size_t(n));
+        } else {
+            log.fault("GPU25: cannot create %s\n", vita::PerfLog::kPath);
+        }
+    }
     vita::AsyncLog perf_log;
     if constexpr (kDiagnostics) perf_log.open(log, ticks_us);
     log.log("GPU25 periodic log worker: threaded=%d; unavailable worker drops periodic records only\n",
             int(perf_log.threaded()));
     vita::Controls controls;
     vita::FrameClock clock(rt::GameLoop::kFrameHz, 1);
-    bool running = true, menu = true, options = false, wait_release = true, gpu_fast = true;
+    bool running = true, menu = true, options = false, wait_release = true;
     int selection = 0;
     uint32_t previous_buttons = 0;
     std::string status = "CROSS SELECT. OPTIONS INCLUDE CLOCKS, AUDIO, DISPLAY AND CONTROLS.";
@@ -384,6 +574,9 @@ int main(int, char **) {
     bool sound_in_flight = false;
     bool native_effect_warned = false;
     double display_fps = 0.0;
+#if DAYTONA_VITA_GPU_GL
+    vita::GlLoopProfile loop_profile; // this iteration, sent to gl.log at its end
+#endif
 
     // Join only after the following frame's board work, or before an operation
     // that mutates audio/lifetime state. The worker never touches GameLoop's
@@ -407,13 +600,23 @@ int main(int, char **) {
         perf_sound_us += sound_worker.last_sound_ticks();
         perf_audio_queue_us += sound_worker.last_audio_ticks();
         ++perf_sound_frames;
+        if constexpr (kPerfLog) {
+            core_profile.add(vita::CoreProfiler::SoundBoard, sound_worker.last_sound_ticks());
+            core_profile.add(vita::CoreProfiler::SoundQueue, sound_worker.last_audio_ticks());
+            ++core_profile.counters.sound_frames;
+        }
+#if DAYTONA_VITA_GPU_GL
+        loop_profile.sound_wait += diagnostic_ticks_us() - begin;
+        loop_profile.sound_worker += sound_worker.last_sound_ticks();
+#endif
         return true;
     };
 
     int applied_core_setting = -1;
     auto apply_preferences = [&] {
         if (applied_core_setting != int(settings.fourth_core)) {
-            if (!vita::configure_fourth_core(settings.fourth_core))
+            // Probed on the main thread, which then goes back to its own core when pinned.
+            if (!vita::configure_fourth_core(settings.fourth_core, main_home_mask))
                 log.fault("CPU affinity request rejected; using ordinary application cores\n");
             applied_core_setting = int(settings.fourth_core);
         }
@@ -427,8 +630,9 @@ int main(int, char **) {
         rt::GameLoop::set_draw_distance(settings.draw_distance);
         if (game) {
             static constexpr double aspects[] = {0, 16.0/10, 16.0/9, 21.0/9};
-            game->set_aspect(aspects[settings.aspect]);
-            game->set_hud_edges(settings.hud_edges);
+            game->set_aspect(kWidescreen ? aspects[settings.aspect] : 0);
+            game->set_hud_edges(kWidescreen && settings.hud_edges);
+            game->set_stretch_backdrop(kWidescreen && settings.stretch_backdrop);
         }
     };
     auto commit_settings = [&](bool set_clocks) {
@@ -466,7 +670,9 @@ int main(int, char **) {
     };
     auto apply_mode = [&] {
         if (game) {
-            game->board().video().set_external_3d(gpu_fast);
+            // The GPU draws the 3D and the System 24 layers (the only Vita mode: the
+            // pipelined geometrizer leaves no exact CPU picture to switch to).
+            game->board().video().set_external_3d(true);
             // Hardware reports show the wide GPU tile path slower overall.
             // Keep original-aspect GPU tiles; use CPU wide layers until total
             // device frame time, not CPU composition alone, justifies it.
@@ -474,6 +680,25 @@ int main(int, char **) {
         }
         gpu.reset_materials();
         clock.reset();
+    };
+    // Geometrizer on its own core, pipelined (the only Vita GPU mode). The
+    // geometry thread belongs to the board's geometrizer and ends with it.
+    auto apply_geometry = [&]() {
+        rt::Geo *geo = geometry_of(game.get());
+        if (!geo) return;
+        const bool ok = geo->configure(rt::GeoMode::Pipelined, kGeoCore, kProfile ? ticks_us : nullptr);
+        geo_seen = nullptr; // re-baseline the per-loop statistics
+        const rt::Geo::Worker &w = geo->worker();
+        char line[256];
+        const int n = std::snprintf(line, sizeof line,
+            "geometry: mode=%s thread=%d core=%d result=%d mask=0x%x priority=%d fpscr main=0x%08x worker=0x%08x\n",
+            rt::geo_mode_name(geo->mode()), int(w.threaded), w.core, w.create_result,
+            unsigned(w.affinity_mask), w.priority, unsigned(w.fpscr_main), unsigned(w.fpscr_worker));
+        if constexpr (kPerfLog) if (n > 0) perf_file.submit(line, size_t(std::min(n, int(sizeof line) - 1)));
+        perf_log.sync([&] {
+            if (ok) log.log("GPU25 %s", line);
+            else log.fault("GPU25 %s", line); // thread unavailable: geometry stays on the main core
+        });
     };
     auto start_game = [&]() -> bool {
         if (!finish_sound()) return false;
@@ -488,7 +713,7 @@ int main(int, char **) {
             settings.save();
             native_audio.close(); audio.close(); sound_worker.close();
             game.reset(); link.reset();
-            vita2d_wait_rendering_done();
+            gfx_idle();
             sceGxmDisplayQueueFinish();
             const int rc = sceAppMgrLoadExec(executable, nullptr, nullptr);
             status = "ROM SWITCH FAILED: " + std::to_string(rc);
@@ -502,13 +727,13 @@ int main(int, char **) {
         gpu.reset_materials();
         status = std::string("LOADING ") + M2_ROMSET + "...";
         gpu.prepare_frame();
-        vita2d_start_drawing(); vita2d_clear_screen();
+        gfx_begin();
         ui.frame(1.f / 60);
         ImGui::SetNextWindowPos({24, 24}); ImGui::SetNextWindowSize({912, 496});
         ImGui::Begin("Starting Daytona USA", nullptr, ImGuiWindowFlags_NoDecoration);
         ImGui::TextWrapped("%s", status.c_str());
         ImGui::End(); ui.render();
-        vita2d_end_drawing(); vita2d_swap_buffers();
+        gfx_end();
         try {
             if (settings.link_enabled && !settings.revision_a)
                 throw std::runtime_error("LINK PLAY REQUIRES DAYTONA REVISION A. SELECT THAT ROM OR TURN LINK OFF.");
@@ -532,7 +757,7 @@ int main(int, char **) {
                         active_native_audio ? "NATIVE_TEST" : "REFERENCE",
                         active_native_audio ? "AUDIO_DEVICE_48000" : "GAME_FRAME", int(game->sound() != nullptr));
             });
-            game->set_profile_clock(kDiagnostics ? ticks_us : nullptr);
+            game->set_profile_clock(kProfile ? ticks_us : nullptr);
             load_nv("ioboard_eeprom.bin", game->board().io().eeprom);
             load_nv("backup_ram.bin", game->board().backup_ram());
             if (settings.link_enabled) {
@@ -540,8 +765,9 @@ int main(int, char **) {
                 if (!link->error().empty()) throw std::runtime_error("LINK: " + link->error());
                 game->board().set_link(link.get(), settings.link_sync);
             }
-            game->board().video().set_profile_clock(kDiagnostics ? ticks_us : nullptr);
+            game->board().video().set_profile_clock(kProfile ? ticks_us : nullptr);
             apply_mode();
+            apply_geometry();
             controls = vita::Controls{};
             apply_preferences();
             status = "START+SELECT MENU. TRIANGLE VIEW 4. D-PAD UP/DOWN SHIFT.";
@@ -556,9 +782,14 @@ int main(int, char **) {
     };
 
     while (running) {
+#if DAYTONA_VITA_GPU_GL
+        loop_profile = {};
+#endif
         const uint64_t now = ticks_us();
         const double elapsed = double(now - last) / 1000000.0;
         last = now;
+        const bool menu_at_start = menu;
+        if constexpr (kPerfLog) core_profile.begin_loop(now);
         const vita::Pad pad = read_pad();
         uint32_t pressed = pad.buttons & ~previous_buttons;
         previous_buttons = pad.buttons;
@@ -585,7 +816,9 @@ int main(int, char **) {
                     bool changed = false, clocks_changed = false;
                     static const int cpu_choices[] = {111, 222, 333, 444, 500};
                     static const int gpu_choices[] = {41, 77, 111, 166};
-                    if (selection == 0 && (direction || activate)) {
+                    if (!kWidescreen && (selection == 11 || selection == 12 || selection == 15) && (direction || activate)) {
+                        status = "WIDESCREEN IS DRAWN BY THE GXM (--GPU-FAST) BUILD ONLY FOR NOW.";
+                    } else if (selection == 0 && (direction || activate)) {
                         settings.cpu_clock = cycle_value(settings.cpu_clock, cpu_choices, 5, direction < 0 ? -1 : 1);
                         changed = clocks_changed = true;
                     } else if (selection == 1 && (direction || activate)) {
@@ -604,7 +837,8 @@ int main(int, char **) {
                     } else if (selection == 6 && (direction || activate)) {
                         settings.native_audio = !settings.native_audio; changed = true;
                     } else if (selection == 7 && activate) {
-                        status = "VITA RENDERER IS FIXED TO NATIVE GXM GPU FAST.";
+                        status = DAYTONA_VITA_GPU_GL ? "RENDERER FIXED AT BUILD: VITAGL (--GPU-GL)."
+                                                     : "RENDERER FIXED AT BUILD: GXM GPU FAST (--GPU-FAST).";
                     } else if (selection == 8 && activate) {
                         status = "VITA OUTPUT IS FIXED FULLSCREEN AT 960 X 544.";
                     } else if (selection == 9 && (direction || activate)) {
@@ -652,9 +886,11 @@ int main(int, char **) {
                                 settings.next_address() + ":" + std::to_string(settings.next_port);
                         if (selection == 17) status = !settings.fourth_core
                             ? "4TH CORE OFF: ORDINARY THREE-CORE SCHEDULING."
-                            : vita::fourth_core_active()
-                                ? "4TH CORE ALLOWED FOR GAME AND AUDIO THREADS. NO EXTRA GAME WORKER."
-                                : "4TH CORE REJECTED. REQUIRES A WORKING CORE-UNLOCK PLUGIN.";
+                            : !vita::fourth_core_active()
+                                ? "4TH CORE REJECTED. REQUIRES A WORKING CORE-UNLOCK PLUGIN."
+                                : kPinnedCores
+                                    ? "4TH CORE ALLOWED FOR THE AUDIO CALLBACKS. GAME THREADS STAY PINNED (BUILD WITH --FREE-CORE)."
+                                    : "4TH CORE ALLOWED FOR GAME, GEOMETRY AND AUDIO THREADS (FREE CORES).";
                         if (selection == 0 && settings.cpu_clock == 500 && scePowerGetArmClockFrequency() != 500)
                             status += " 500 NOT ACTIVE: CHECK OVERCLOCK PLUGIN/PROFILE.";
                         if (selection == 13) status = "FURTHER DISTANCES ADD SCENERY AND MAY REDUCE FPS.";
@@ -681,21 +917,74 @@ int main(int, char **) {
             }
         }
 
+        if constexpr (kPerfLog) core_profile.add(vita::CoreProfiler::Input, diagnostic_ticks_us() - now);
         bool simulated = false;
         if (game && !menu) {
             if (active_native_audio) native_audio.resume();
             const int frames = clock.advance(elapsed);
             for (int n = 0; n < frames; ++n) {
+                // Work counters and geometrizer statistics before the frame (the
+                // shared runtime itself is not instrumented beyond FrameProfile).
+                const uint64_t i960_before = game->instructions();
+                const uint64_t tgp_before = game->board().tgp().tgp_instructions();
+                const rt::Geo *frame_geo = geometry_of(game.get());
+                const rt::Geo::Stats geo_before = frame_geo ? frame_geo->stats() : rt::Geo::Stats{};
                 const uint64_t begin = diagnostic_ticks_us();
                 try {
                     auto inputs = map_input(controls.sample(wait_release ? vita::Pad{} : pad));
                     test_hold.apply(game->frames(), inputs.in0);
                     auto next_sound = game->run_frame_sound_packet(inputs);
-                    perf_run_us += diagnostic_ticks_us() - begin;
+                    const uint64_t board_end = diagnostic_ticks_us();
+                    perf_run_us += board_end - begin;
                     const auto &fp = game->last_profile();
+                    const rt::Geo::Stats geo_frame = frame_geo ? geo_stats_delta(frame_geo->stats(), geo_before) : rt::Geo::Stats{};
+                    if constexpr (kPerfLog) {
+                        // Main-core board frame: game logic -> vblank start (geometry) ->
+                        // vblank handler -> vblank end (2D video). FrameProfile gives the
+                        // vblank start/end durations; the geometrizer's timestamps of its
+                        // parse() call (vblank start) and of the board's read of the list
+                        // (vblank end) split the i960+TGP time between the two phases.
+                        using P = vita::CoreProfiler;
+                        const rt::Geo::Stats &gs = frame_geo ? frame_geo->stats() : geo_before;
+                        const uint64_t wall = board_end - begin;
+                        uint64_t logic = 0, irq = 0;
+                        const bool parsed = geo_frame.parse_calls != 0 && gs.last_parse_call >= begin;
+                        const bool read = gs.last_output_call >= begin && gs.last_output_call <= board_end;
+                        if (parsed && read && gs.last_output_call >= gs.last_parse_return) {
+                            logic = gs.last_parse_call - begin;
+                            irq = gs.last_output_call - gs.last_parse_return;
+                        } else if (read) {
+                            // No parse this frame (30 Hz): the vblank handler stays in "logic".
+                            logic = gs.last_output_call - begin;
+                            logic = logic > fp.geometry ? logic - fp.geometry : 0;
+                        } else {
+                            logic = fp.core();
+                        }
+                        const uint64_t known = logic + fp.geometry + irq + fp.video;
+                        core_profile.add(P::Logic, logic);
+                        core_profile.add(P::GeoMain, fp.geometry);
+                        core_profile.add(P::Irq, irq);
+                        core_profile.add(P::Video2D, fp.video);
+                        core_profile.add(P::BoardOther, wall > known ? wall - known : 0);
+                        core_profile.add(P::GeoWaitBoard, geo_frame.wait_ticks);
+                        core_profile.add(P::Snapshot, geo_frame.snapshot_ticks);
+                        auto &c = core_profile.counters;
+                        ++c.board_frames;
+                        c.i960_instructions += game->instructions() - i960_before;
+                        c.tgp_instructions += game->board().tgp().tgp_instructions() - tgp_before;
+                        c.geo_count_reads += geo_frame.count_reads;
+                    }
                     perf_core_us += fp.core(); perf_geo_us += fp.geometry;
                     perf_video_us += fp.video;
+#if DAYTONA_VITA_GPU_GL
+                    ++loop_profile.board_frames;
+                    loop_profile.board += diagnostic_ticks_us() - begin;
+                    loop_profile.board_core += fp.core();
+                    loop_profile.board_geometry += fp.geometry;
+                    loop_profile.board_video += fp.video;
+#endif
                     ++perf_frames;
+                    const uint64_t sound_begin = diagnostic_ticks_us();
                     if (active_native_audio) {
                         // Only commands cross into audio. The callback sequences
                         // and mixes continuously, not once per graphics frame.
@@ -718,9 +1007,10 @@ int main(int, char **) {
                         // Reference backend retains the bounded sound pipeline.
                         if (!finish_sound()) break;
                         active_sound = std::move(next_sound);
-                        sound_worker.dispatch_packet(active_sound, audio, kDiagnostics ? ticks_us : nullptr);
+                        sound_worker.dispatch_packet(active_sound, audio, kProfile ? ticks_us : nullptr);
                         sound_in_flight = true;
                     }
+                    if constexpr (kPerfLog) core_profile.add(vita::CoreProfiler::SoundSync, diagnostic_ticks_us() - sound_begin);
                     simulated = true;
                 } catch (const std::exception &e) {
                     // A board/dispatch failure must not destroy a sound board
@@ -733,39 +1023,83 @@ int main(int, char **) {
             }
         } else clock.reset();
 
-        const uint64_t gpu_begin = diagnostic_ticks_us();
         if (link) link->poll();
-        gpu.prepare_frame();
-        const uint64_t gpu_ready = diagnostic_ticks_us();
-        vita2d_start_drawing();
-        vita2d_clear_screen();
-        if (menu) {
-            std::string shown_status = status;
-            if (link && game && !options) {
-                const auto *comm = game->board().comm_board();
-                shown_status += "\nIP " + link->local_ip() + " RX " + (link->rx_open() ? "YES" : "WAIT") +
-                    " TX " + (link->tx_open() ? "YES" : "WAIT");
-                if (comm) shown_status += " CABINET " + std::to_string(comm->id()) + "/" +
-                    std::to_string(comm->count()) + (comm->link() == rt::CommBoard::Link::Lost ? " LOST" : "");
+        // A loop without a new emulated frame (the host is ahead of the board's 57.52 Hz
+        // clock) draws nothing: the display keeps the last picture, which is the same
+        // image, and the rendering time goes to the next emulated frame instead. Menus
+        // and the loop that ran a frame draw as before.
+        const bool present = menu || !game || simulated;
+        uint64_t gpu_begin = 0, gpu_ready = 0;
+        if (present) {
+            gpu_begin = diagnostic_ticks_us();
+            gpu.prepare_frame();
+            gpu_ready = diagnostic_ticks_us();
+            gfx_begin();
+            const uint64_t gfx_begun = diagnostic_ticks_us();
+            if (menu) {
+                std::string shown_status = status;
+                if (link && game && !options) {
+                    const auto *comm = game->board().comm_board();
+                    shown_status += "\nIP " + link->local_ip() + " RX " + (link->rx_open() ? "YES" : "WAIT") +
+                        " TX " + (link->tx_open() ? "YES" : "WAIT");
+                    if (comm) shown_status += " CABINET " + std::to_string(comm->id()) + "/" +
+                        std::to_string(comm->count()) + (comm->link() == rt::CommBoard::Link::Lost ? " LOST" : "");
+                }
+                ui.frame(float(elapsed));
+                draw_menu(bool(game), options, selection, settings, shown_status, display_fps);
+                ui.render();
+            } else if (game) {
+                gpu.draw(game->board().video()); // System 24 layers + polygons on the GPU (the only case)
             }
-            ui.frame(float(elapsed));
-            draw_menu(bool(game), options, selection, settings, shown_status, display_fps);
-            ui.render();
+            const uint64_t drawn = diagnostic_ticks_us();
+            gfx_end();
+            const uint64_t gfx_ended = diagnostic_ticks_us();
+            if constexpr (kPerfLog) {
+                using P = vita::CoreProfiler;
+                core_profile.add(P::GpuPrepare, gpu_ready - gpu_begin);
+                core_profile.add(P::GfxBegin, gfx_begun - gpu_ready);
+                const uint64_t draw_total = drawn - gfx_begun;
+                if (!menu && game) {
+                    const uint64_t upload = gpu.last_upload_us(), layers = gpu.last_tile_us(), sort = gpu.last_sort_us();
+                    const uint64_t parts = upload + layers + sort;
+                    core_profile.add(P::Upload, upload);
+                    core_profile.add(P::Layers, layers);
+                    core_profile.add(P::Sort, sort);
+                    core_profile.add(P::Polygons, draw_total > parts ? draw_total - parts : 0);
+#if DAYTONA_VITA_GPU_GL
+                    core_profile.add(P::TexBuild, gpu.last_texture_us());
+                    core_profile.add(P::VertexWrite, gpu.last_vertex_us());
+                    core_profile.add(P::Worker2D, gpu.last_2d_worker_us()); // core 2, in parallel
+#endif
+                } else {
+                    core_profile.add(P::Upload, draw_total); // the menu
+                }
+                // The gl.log write is diagnostics, not frame end (gpu_gl.cpp).
+#if DAYTONA_VITA_GPU_GL
+                const uint64_t gl_diagnostic = std::min<uint64_t>(vita::gl_last_diagnostic_us(), gfx_ended - drawn);
+#else
+                const uint64_t gl_diagnostic = 0;
+#endif
+                core_profile.add(P::GfxEnd, gfx_ended - drawn - gl_diagnostic);
+                core_profile.add(P::Log, gl_diagnostic);
+            }
+            if (!menu && game) {
+                ++perf_presents;
+                perf_wait_us += gpu_ready - gpu_begin;
+                perf_encode_us += uint64_t(gpu.last_gpu_ms() * 1000.0);
+                perf_sort_us += gpu.last_sort_us(); perf_polygon_us += gpu.last_polygon_us();
+                perf_tile_us += gpu.last_tile_us(); perf_upload_us += gpu.last_upload_us();
+                perf_gpu_us += diagnostic_ticks_us() - gpu_begin;
+            }
         }
-        else if (game) {
-            if (gpu_fast) gpu.draw(game->board().video()); else gpu.draw_exact(game->board().video());
-        }
-        vita2d_end_drawing();
-        vita2d_swap_buffers();
-        if (!menu && game) {
-            ++perf_presents;
-            perf_wait_us += gpu_ready - gpu_begin;
-            perf_encode_us += uint64_t(gpu.last_gpu_ms() * 1000.0);
-            perf_sort_us += gpu.last_sort_us(); perf_polygon_us += gpu.last_polygon_us();
-            perf_tile_us += gpu.last_tile_us(); perf_upload_us += gpu.last_upload_us();
-            perf_gpu_us += diagnostic_ticks_us() - gpu_begin;
-        }
-
+        // Geometry core work joined during this loop (folded in at each join).
+        const rt::Geo::Stats geo_delta = take_geo_delta();
+        (void)geo_delta; // unused without perf.log
+#if DAYTONA_VITA_GPU_GL
+        loop_profile.menu = menu;
+        loop_profile.prepare = gpu_ready - gpu_begin;
+        if constexpr (kDiagnostics) vita::gl_profile_loop(loop_profile);
+#endif
         const uint64_t after = ticks_us();
         if (simulated) perf_frame_peak_us = std::max(perf_frame_peak_us, after - now);
         if (after - perf_start >= 2000000) {
@@ -782,7 +1116,7 @@ int main(int, char **) {
                 const auto native_stats = native_audio.stats();
                 const uint64_t log_begin = ticks_us();
                 perf_log.try_log("gpu25: mode=%s menu=%d frames=%u presents=%u window_ms=%.2f log_enqueue_prev_ms=%.2f log_write_prev_ms=%.2f log_write_peak_ms=%.2f log_drops=%u log_failures=%u sound_frames=%u frame_peak_ms=%.2f sim_fps=%.2f run_ms=%.2f core_ms=%.2f geo_ms=%.2f video_ms=%.2f sound_ms=%.2f gpu_submit_ms=%.2f gpu_encode_ms=%.2f gpu_wait_ms=%.2f sound_wait_ms=%.2f audio_worker_queue_ms=%.2f sort_ms=%.2f poly_ms=%.2f tiles_ms=%.2f upload_ms=%.2f cpu_mhz=%d gpu_mhz=%d cpu_raster_ms=%.2f tile_cache_ms=%.2f tile_draw_ms=%.2f compose_ms=%.2f layers=%u tiles=%u chars=%u materials=%u sources=%u builds=%u defers=%u cache_mb=%.2f cache_reserved_mb=%.2f pool_free_kb=%u pool_drops=%u material_drops=%u subdiv_polys=%u vertices=%u tile_uploads=%u cache_resets=%u tile_quads=%u draws=%u/%u clips=%u polys=%u/%u shader_setups=%u state_reuses=%u draw_errors=%u checker_polys=%u textured_checker_polys=%u sys24_ctrl=%04x/%04x audio=%s native_frames=%u native_last_ms=%.3f native_peak_ms=%.3f native_queue=%u native_overflows=%u native_failed=%u native_unsupported=%u native_invalid=%u native_notes=%u native_voices=%u\n",
-                        gpu_fast ? "GPU_FAST" : "CPU_EXACT", int(menu), unsigned(perf_frames), unsigned(perf_presents),
+                        kRendererName, int(menu), unsigned(perf_frames), unsigned(perf_presents),
                         sec * 1000.0, double(previous_log_us) / 1000.0,
                         double(log_stats.last_write_ticks) / 1000.0, double(log_stats.max_write_ticks) / 1000.0,
                         unsigned(log_stats.dropped), unsigned(log_stats.failures), unsigned(perf_sound_frames),
@@ -803,6 +1137,7 @@ int main(int, char **) {
                         native_stats.queued, native_stats.overflows, native_stats.failed,
                         native_stats.unsupported, native_stats.invalid, native_stats.notes, native_stats.voices);
                 previous_log_us = ticks_us() - log_begin;
+                if constexpr (kPerfLog) core_profile.add(vita::CoreProfiler::Log, previous_log_us);
             }
             perf_start = after; perf_frames = perf_run_us = perf_gpu_us = 0;
             perf_core_us = perf_geo_us = perf_video_us = perf_sound_us = 0;
@@ -812,6 +1147,61 @@ int main(int, char **) {
             perf_sort_us = perf_polygon_us = perf_tile_us = perf_upload_us = 0;
         }
         if (menu || !simulated) SDL_Delay(1);
+
+        if constexpr (kPerfLog) {
+            using P = vita::CoreProfiler;
+            // Windows cover gameplay only: a loop that showed or left the menu
+            // (ROM import, pause) restarts the window.
+            if (!game || menu || menu_at_start) {
+                core_profile.reset(ticks_us());
+            } else {
+                core_profile.add(P::GeoParse, geo_delta.worker_ticks);
+                core_profile.add(P::Log, perf_log_pending_us);
+                perf_log_pending_us = 0;
+                auto &c = core_profile.counters;
+                ++c.presents;
+                c.geo_jobs += geo_delta.jobs;
+                c.geo_polys += geo_delta.polys;
+                c.geo_blocked += geo_delta.blocked_waits;
+                c.geo_failures += geo_delta.failures;
+                c.geo_latency += geo_delta.latency_ticks;
+                c.geo_latency_max = std::max(c.geo_latency_max, geo_delta.latency_ticks);
+                c.geo_parse_max = std::max(c.geo_parse_max, geo_delta.worker_ticks);
+                c.geo_wait_max = std::max(c.geo_wait_max, geo_delta.wait_ticks);
+                if (geo_delta.jobs) c.geo_polys_max = std::max(c.geo_polys_max, geo_delta.polys / geo_delta.jobs);
+                const uint64_t loop_end = ticks_us();
+                core_profile.end_loop(loop_end);
+                if (core_profile.due(loop_end, 1000000u, kPerfWindowSeconds)) {
+                    const auto native = native_audio.stats();
+                    c.native_callback_last = native.last_us;
+                    c.native_callback_peak = native.peak_us;
+                    const auto pacing = audio.stats();
+                    c.audio_gaps = pacing.underruns - std::min(audio_gaps_seen, pacing.underruns);
+                    audio_gaps_seen = pacing.underruns;
+                    c.audio_speed = pacing.ratio;
+                    c.audio_queue_ms = pacing.queued_ms;
+                    vita::CoreProfiler::Header h;
+                    h.index = ++perf_index;
+                    const rt::Geo *geo = geometry_of(game.get());
+                    h.geo_mode = rt::geo_mode_name(geo ? geo->mode() : rt::GeoMode::Sync);
+                    h.renderer = kRendererName;
+                    h.cpu_mhz = scePowerGetArmClockFrequency();
+                    h.gpu_mhz = scePowerGetGpuClockFrequency();
+                    h.bus_mhz = scePowerGetBusClockFrequency();
+                    h.main_core = kMainCore; h.geo_core = kGeoCore;
+                    h.sound_core = kSoundCore;
+                    h.geo_threaded = geo && geo->worker().threaded && geo->mode() != rt::GeoMode::Sync;
+                    h.sound_threaded = sound_worker.threaded();
+                    h.native_audio = active_native_audio;
+                    static char report[vita::PerfLog::kCapacity];
+                    const size_t size = core_profile.format(report, sizeof report, h, 1000000u);
+                    perf_file.submit(report, size);
+                    const uint64_t reported = ticks_us();
+                    perf_log_pending_us = reported - loop_end;
+                    core_profile.reset(reported);
+                }
+            }
+        }
     }
 
     finish_sound();
@@ -823,8 +1213,9 @@ int main(int, char **) {
     gpu.shutdown();
     ui.shutdown();
     restore_clocks();
-    vita2d_fini();
+    gfx_fini();
     perf_log.close(); // join file I/O before destroying SDL synchronization
+    perf_file.close();
     SDL_Quit();
     log.literal("GPU25: clean exit\n");
     return 0;

@@ -39,6 +39,11 @@ public:
         return true;
     }
     bool threaded() const { return thread_ != nullptr; }
+    // Affinity applied by the next open(): a SCE_KERNEL_CPU_MASK_USER_n mask
+    // pins the sound board to one core (main_gpu.cpp: core 2, away from the
+    // main and geometry threads); 0 keeps all application cores and follows
+    // the fourth-core policy (core_policy.h, --free-core builds).
+    void set_cpu_mask(int mask) { requested_mask_ = mask; }
     int affinity_before() const { return affinity_before_; }
     int affinity_mask() const { return affinity_mask_; }
     int affinity_result() const { return affinity_result_; }
@@ -137,7 +142,7 @@ private:
     uint64_t ticks_ = 0;
     std::exception_ptr error_;
     bool queued_ = false, busy_ = false, done_ = false, stopping_ = false, initialized_ = false;
-    int affinity_before_ = 0, affinity_mask_ = 0, affinity_result_ = 0;
+    int affinity_before_ = 0, affinity_mask_ = 0, affinity_result_ = 0, requested_mask_ = 0;
 
     static Result run(void *context, Execute execute, void *output, Queue queue, Clock clock) {
         Result result;
@@ -183,11 +188,15 @@ private:
 #ifdef __vita__
         const SceUID thread = sceKernelGetThreadId();
         self.affinity_before_ = sceKernelGetThreadCpuAffinityMask(thread);
-        // Permit all application CPUs rather than inheriting a single CPU
-        // from the rendering thread. Do not force either job onto one core.
-        if (self.affinity_before_ < 0 ||
-            (self.affinity_before_ & SCE_KERNEL_CPU_MASK_USER_ALL) != SCE_KERNEL_CPU_MASK_USER_ALL)
+        // The requested core if any (set_cpu_mask); otherwise permit all
+        // application CPUs rather than inheriting the rendering thread's core.
+        if (self.requested_mask_) {
+            if (self.affinity_before_ != self.requested_mask_)
+                self.affinity_result_ = sceKernelChangeThreadCpuAffinityMask(thread, self.requested_mask_);
+        } else if (self.affinity_before_ < 0 ||
+            (self.affinity_before_ & SCE_KERNEL_CPU_MASK_USER_ALL) != SCE_KERNEL_CPU_MASK_USER_ALL) {
             self.affinity_result_ = sceKernelChangeThreadCpuAffinityMask(thread, SCE_KERNEL_CPU_MASK_USER_ALL);
+        }
         self.affinity_mask_ = sceKernelGetThreadCpuAffinityMask(thread);
 #endif
         SDL_LockMutex(self.mutex_);
@@ -203,7 +212,7 @@ private:
             Clock clock = self.queue_clock_;
             self.queued_ = false;
             SDL_UnlockMutex(self.mutex_);
-            apply_core_policy(applied_core_mask);
+            if (!self.requested_mask_) apply_core_policy(applied_core_mask); // pinned: stays on its core
             const Result result = run(context, execute, output, queue, clock);
             SDL_LockMutex(self.mutex_);
             self.ticks_ = result.sound;

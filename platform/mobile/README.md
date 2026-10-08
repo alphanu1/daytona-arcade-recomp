@@ -22,6 +22,19 @@ The mobile builds read that directory through `M2_GEN_ROOT`.
 
 ## Android
 
+GPU startup failures now show a native **Daytona Error** dialog and log the
+compiled GPU drivers. Vulkan API version alone does not establish SDL_GPU
+compatibility. Startup opts out of unused shader clip distances, indirect
+first-instance drawing and anisotropic filtering; depth clamping remains
+required by the current game and ImGui pipelines. This is not an OpenGL
+fallback, nor a guarantee for every Mali/Adreno driver.
+
+If startup still fails, capture the GPU diagnostics (not only SDL/APP):
+
+```sh
+adb logcat -d -s SDL SDL/APP SDL/GPU AndroidRuntime libc
+```
+
 Requirements: JDK 17, Android SDK API 37, NDK 28.2.13676358, CMake 3.31.6, and
 Gradle compatible with Android Gradle Plugin 9.4.1.
 

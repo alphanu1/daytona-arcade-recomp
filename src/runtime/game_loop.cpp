@@ -56,7 +56,7 @@ void GameLoop::probe() {
             frame_start_ = ls_->count;
             ++frames_;
             frame_done_ = true;
-#ifdef M2_DC_SPEED
+#ifdef M2_FAST_GEN
             ls_->set_end(ls_->count); // gen::run returns to the caller
 #else
             ls_->end_count = ls_->count; // gen::run returns to the caller
@@ -106,13 +106,13 @@ void GameLoop::run_frame_deferred_sound(const Inputs &inputs) {
     auto frame_sample = profiler_.measure(profiler_.frame.total);
     inputs_ = inputs;
     frame_done_ = false;
-#ifdef M2_DC_SPEED
+#ifdef M2_FAST_GEN
     ls_->set_end(UINT64_MAX);
 #else
     ls_->end_count = UINT64_MAX;
 #endif
     while (!frame_done_) {
-#ifdef M2_DC_SPEED
+#ifdef M2_FAST_GEN
         // has_code is a binary search over every address: asked only after a
         // run that did nothing (where the IP has no code, run returns at once).
         const uint64_t count = ls_->count;
@@ -126,7 +126,7 @@ void GameLoop::run_frame_deferred_sound(const Inputs &inputs) {
             std::snprintf(b, sizeof b, "no recompiled code at %08x: add it to the seeds", cpu_->m_IP);
             throw Fatal(b);
         }
-#ifndef M2_DC_SPEED
+#ifndef M2_FAST_GEN
         gen::run(*env_);
 #endif
     }
