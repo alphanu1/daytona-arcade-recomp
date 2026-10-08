@@ -1,6 +1,8 @@
 #include "app/config.h"
+#include "runtime/scenery.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include <SDL3/SDL.h>
 
@@ -23,6 +25,10 @@ std::string Config::path() { return pref_dir() + "launcher.ini"; }
 
 void Config::load() {
     std::ifstream f(path());
+    read(f);
+}
+
+void Config::read(std::istream &f) {
     std::string line;
     while (std::getline(f, line)) {
         const auto eq = line.find('=');
@@ -37,6 +43,12 @@ void Config::load() {
         else if (k == "hud_edges") hud_edges = v == "1";
         else if (k == "stretch_backdrop") stretch_backdrop = v == "1";
         else if (k == "draw_distance") draw_distance = std::clamp(std::atoi(v.c_str()), -2, 2);
+        else if (k == "draw_budget") {
+            if (!rt::parse_scenery_budget(v, draw_budget)) {
+                draw_budget = 0;
+                std::fprintf(stderr, "Ignoring invalid draw_budget; using Automatic\n");
+            }
+        }
         else if (k == "draw_mode") draw_mode = std::clamp(std::atoi(v.c_str()), 0, 2);
         else if (k == "supersampling") supersampling = std::clamp(std::atoi(v.c_str()), 1, 4);
         else if (k == "volume") volume = std::clamp(std::strtof(v.c_str(), nullptr), 0.0f, 1.0f);
@@ -73,6 +85,10 @@ void Config::load() {
 
 void Config::save() const {
     std::ofstream f(path());
+    write(f);
+}
+
+void Config::write(std::ostream &f) const {
     f << "# Daytona USA launcher settings\n";
     f << "rom=" << rom_path << "\n";
     f << "gpu=" << gpu << "\n";
@@ -83,6 +99,7 @@ void Config::save() const {
     f << "hud_edges=" << (hud_edges ? 1 : 0) << "\n";
     f << "stretch_backdrop=" << (stretch_backdrop ? 1 : 0) << "\n";
     f << "draw_distance=" << draw_distance << "\n";
+    f << "draw_budget=" << draw_budget << "\n";
     f << "draw_mode=" << draw_mode << "\n";
     f << "supersampling=" << supersampling << "\n";
     f << "volume=" << volume << "\n";
@@ -117,7 +134,7 @@ void Config::save() const {
 
 double Config::aspect_ratio() const {
     double w = 0, h = 0;
-    if (std::sscanf(aspect.c_str(), "%lf:%lf", &w, &h) != 2 || w <= 0 || h <= 0) return 0;
+    if (std::sscanf(aspect.c_str(), "%lf:%lf", &w, &h) != 2 || !std::isfinite(w) || !std::isfinite(h) || w <= 0 || h <= 0) return 0;
     return std::min(w / h, kMaxAspect);
 }
 

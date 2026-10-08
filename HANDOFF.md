@@ -1,5 +1,57 @@
 # Handoff
 
+## Scenery selection and polygon budget PR branch (2026-10-08)
+
+Branch `scenery-budget` starts from upstream/main `82201ed`, separate from
+the staged integration merge. Widescreen at the existing 16:10, 16:9 and
+21:9 choices now appends nearby scenery cells omitted by the game's narrow
+directional selection while retaining course exclusions and original order.
+The default polygon allowance scales with view width and retains the higher
+draw-distance allowance; the launcher offers Automatic and a fixed Custom
+allowance. Native Default remains at 5,000. The per-board scenery state
+prevents linked cabinets sharing a width or custom allowance.
+
+The headless replay tools can exercise 32:9 scenery and budget behavior, while
+the launcher remains capped at 21:9. The source commit's larger 32:9 capture
+matrix is held for a later panorama PR because the sky boundary needs work.
+The upstream frame pacing and mobile input loop were retained while adding
+the budget call. The 32:9 headless replay is a development route, not a
+launcher choice: a Deluxe '93 frame visibly shows the remaining vertical
+sky-art boundary. The panorama PR should address that presentation and then
+expose the ratio. Refresh this branch against upstream/main before opening
+the PR if upstream has advanced.
+
+Release tests in the isolated checkout: `scenery` and `app_config` CTests
+pass. Fresh Deluxe '93 generated code built `m2run.exe` and `daytona.exe`.
+Across 600 attract frames, native keeps the 5,000 budget and does not change
+the original list; 32:9 uses 13,771 and expands the list on 416 frames. A
+3,600-frame Deluxe '93 race uses 9,033 at 21:9 and 13,771 at 32:9, expanding
+the list on 2,013 frames in both runs with no budget rejections. A 32:9
+Custom 5,000 run retains the expanded list and fixes the allowance at 5,000.
+
+Fresh Revision A generated code built `m2run.exe` and `daytona.exe`,
+including all four new cost and budget-observer hooks. In a 3,600-frame
+advanced-course run, native keeps 5,000 with no list change; 32:9 uses
+13,771 and expands the list on
+2,041 frames, raising observed peak object cost from 4,710 to 7,517. The
+particular sampled frame still matches pixel-for-pixel, so it is not evidence
+of a visible correction there. The original `race_to_end` missing-building
+fixture does show the correction at frame 3,600: new selection keeps 25
+cells versus 10 with old selection, and the two 32:9 captures differ in
+20,483 of 524,544 RGB pixels. Both runs use the same 13,771 budget and have
+matching CPU/TGP instruction totals and sound command count, isolating cell
+selection as the cause. The local `roms/daytona93.zip` is a split set, so it
+cannot be imported alone (it lacks the shared `mpr-16528.10`). The merged
+`roms/daytona.zip` contains the complete Deluxe '93 set: the PR branch's
+Deluxe '93 importer accepted it, and all ten imported images match the cache
+used for recompilation byte-for-byte by SHA-256. Testers can select that
+merged archive in the Deluxe '93 launcher. All caches, captures and NVRAM
+remain ignored local files. Deluxe '93 `m2gpushot.exe` also built and completed a
+3,600-frame Direct3D 12 headless 32:9 race capture: the output is 1366x384,
+the allowance is 13,771 and the list expands on 2,013 frames, matching the
+software replay's selection metrics. This is a GPU smoke test, not a proof of
+software/GPU pixel identity or physical device behavior.
+
 ## Mobile upstream rebase and GPU startup diagnostics (2026-10-07)
 
 Rebased mobile onto original alphanu1 upstream/main 0435a46; recovery branch

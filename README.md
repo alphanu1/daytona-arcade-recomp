@@ -129,7 +129,10 @@ opens first:
   with "Stretch tile background" the game's sky picture stretched across);
   and
   a draw distance slider for the scenery (default
-  is the game's own; shorter runs faster). Start.
+  is the game's own; shorter runs faster). Widescreen also selects scenery
+  beside the wider view. The polygon budget defaults to Automatic, which
+  scales with the view width and keeps the allowance for longer draw distance;
+  Custom accepts a fixed allowance for tuning. Start.
 - **Controls**: bind every arcade control to a key, a gamepad button or
   axis, and a wheel or joystick input (experimental; click, then press). Triggers, sticks,
   wheels and pedals are analogue. Wheels, pedals and shifters work as
