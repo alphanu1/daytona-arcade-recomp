@@ -676,6 +676,8 @@ void Video::compose16(int cat, const bool uses[4], const uint8_t *extra_lines) {
 
 void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const VideoMem &mem) {
     gpu_polys_ = &polys;
+    has_3d_ = !polys.empty();
+    poly_count_ = polys.size();
     gpu_windows_ = windows;
     gpu_mem_ = mem;
     profile_ = {};

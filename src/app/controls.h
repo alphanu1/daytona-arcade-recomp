@@ -84,6 +84,8 @@ struct Controls {
 
     // Live values for the UI
     float steer = 0, accel = 0, brake = 0;
+    bool slow_steer = false; // menu screen: one push selects one step and the steering stays there (see Controls::sample)
+    int menu_sel = -1, menu_dir = 0; // menus: the selected side (-1 left, 0 centre, 1 right) and the last pushed direction
     int gear = 1;
 private:
     bool held_[kNumActions] = {};
