@@ -214,11 +214,29 @@ rt::Inputs Controls::sample(const bool *keys, const Devices &d) {
     if (steer_invert) target = -target;
     const bool analog = (analog_source(SteerLeft, d) || analog_source(SteerRight, d)) &&
                         !(keys && (keys[bind[SteerLeft].key] || keys[bind[SteerRight].key]));
-    steer = analog ? target : steer + std::clamp(target - steer, -0.12f, 0.12f);
+    if (slow_steer) {
+        // Menus: one push moves the selection one step and the steering stays there (left / centre / right) until the
+        // next push, as on the Saturn and Dreamcast ports. A menu opens on its first entry.
+        const int dir = target > 0.5f ? 1 : target < -0.5f ? -1 : 0;
+        if (dir != 0 && dir != menu_dir) menu_sel = std::clamp(menu_sel + dir, -1, 1);
+        menu_dir = dir;
+        steer = float(menu_sel);
+    } else {
+        menu_sel = -1;
+        menu_dir = 0;
+        steer = analog ? target : steer + std::clamp(target - steer, -0.12f, 0.12f);
+    }
     accel = value(Accelerate, keys, d);
     brake = value(Brake, keys, d);
     // ADC ranges (MAME's daytona ports): steering 0x20-0xe0 centred on 0x80, pedals 0x20 (up) to 0xe0 (floored)
-    in.steer = uint8_t(std::lround(0x80 + std::clamp(steer, -1.f, 1.f) * 0x60));
+    const float s = std::clamp(steer, -1.f, 1.f);
+    if (slow_steer) {
+        // Menus (circuit select) hold the highlight only while the wheel reads 0x86-0x96, step right above that and
+        // left below it: a centred stick or D-pad (0x80) would keep pushing left. Centre on 0x8e, keep the full range.
+        in.steer = uint8_t(std::lround(s >= 0 ? 0x8e + s * (0xe0 - 0x8e) : 0x8e + s * (0x8e - 0x20)));
+    } else {
+        in.steer = uint8_t(std::lround(0x80 + s * 0x60));
+    }
     in.accel = uint8_t(std::lround(0x20 + std::clamp(accel, 0.f, 1.f) * 0xc0));
     in.brake = uint8_t(std::lround(0x20 + std::clamp(brake, 0.f, 1.f) * 0xc0));
 

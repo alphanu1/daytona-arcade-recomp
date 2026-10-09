@@ -503,6 +503,7 @@ int main(int argc, char **argv) {
             game->set_stretch_backdrop(cfg.stretch_backdrop);
             rt::GameLoop::set_draw_distance(cfg.draw_distance);
             for (int frames = pacer.frames(now); frames > 0; --frames) {
+                cfg.controls.slow_steer = game->menu_screen();
                 rt::Inputs inputs = cfg.controls.sample(SDL_GetKeyboardState(nullptr), devices);
                 if (cfg.hold_test != test_hold.armed()) cfg.hold_test ? test_hold.arm() : test_hold.cancel();
                 if (test_hold.apply(game->frames(), inputs.in0)) cfg.hold_test = false; // held: the box clears

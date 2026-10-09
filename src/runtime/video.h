@@ -91,6 +91,9 @@ public:
     const uint16_t *gpu_tile_words() const { return gpu_tile_words_.data(); }
     const uint32_t *gpu_pens() const { return gpu_pens_.data(); }
     int margin() const { return margin_; }
+    size_t poly_count() const { return poly_count_; }
+    int window_count() const { return gpu_windows_; }
+    bool has_3d() const { return has_3d_; } // this frame drew 3D polygons (race, attract), not a 2D menu
     enum class Backdrop { Edges, Sky, Stretch }; // fill_margins' three cases
     Backdrop backdrop() const { return !scene() ? Backdrop::Edges : stretch_backdrop_ ? Backdrop::Stretch : Backdrop::Sky; }
     bool cpu_front() const { return hud_on_; }
@@ -301,6 +304,8 @@ private:
     int margin_ = 0;
     int dw_ = W;                               // draw()'s output width
     std::vector<uint32_t> stretch_row_;        // widescreen: one backdrop row, for stretching
+    bool has_3d_ = true;
+    size_t poly_count_ = 0;
     int coverage_ = 100;                       // widescreen: % of the screen the last 3D render covered
     // Widescreen: is this frame a 3D scene (race, attract) rather than a 2D
     // screen (titles, car and circuit select)? Scenes draw in one window and

@@ -99,6 +99,8 @@ public:
     }
     // With widescreen, in 3D scenes: the tile backdrop stretched across the width (else plain sky margins).
     void set_stretch_backdrop(bool on) { board_->video().set_stretch_backdrop(on); }
+    // 2D menus: circuit select draws 12 polygons in 2 windows, car select ~1,300 in 3; the demo and races use one window and 1,000+ polygons
+    bool menu_screen() const { return board_->video().window_count() >= 2 || board_->video().poly_count() < 50; }
     // Draw mode (enhancement): 0 every frame (the game's), 1 every 2nd, 2 every 3rd.
     void set_frame_skip(int skip) { board_->set_frame_skip(skip); }
     // With widescreen: the race HUD's side groups at the screen edges.
