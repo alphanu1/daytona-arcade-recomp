@@ -351,9 +351,11 @@ try {
 
 if ($code -eq 0) {
     $apk = Join-Path $ProjectDir 'app\build\outputs\apk\debug\app-debug.apk'
+	$daytonaapk = Join-Path $ProjectDir 'app\build\outputs\apk\debug\DaytonaUSA-debug.apk'
     Write-Host ""
     Write-Host "Build succeeded." -ForegroundColor Green
     if (Test-Path $apk) { Write-Host "APK: $apk"; Write-Host "Install: adb install -r `"$apk`"" }
+	if (Test-Path $daytonaapk) { Write-Host "APK: $daytonaapk"; Write-Host "Install: adb install -r `"$daytonaapk`"" }
 } else {
     Write-Host "Build failed (exit code $code)." -ForegroundColor Red
 }
