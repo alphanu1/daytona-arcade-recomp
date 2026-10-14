@@ -22,6 +22,24 @@ void hook_draw_list(Cpu &c) {
     bool &changed = state ? state->budget_changed : legacy_changed;
     const uint32_t budget = state ? state->budget(level) : automatic_scenery_budget(496, level);
     const bool wide = state && state->width > 496 && !state->original_selection;
+    if (state) {
+        state->car_cells.fill(0);
+        const uint32_t centre = c.m_r[8];
+        if (wide && centre <= 255) {
+            const int cx = int(centre & 15), cy = int(centre >> 4);
+            // Cars keep their original cell range regardless of the scenery
+            // distance/budget setting. Preserve the course/grid exclusions.
+            for (int dy = -2; dy <= 2; ++dy)
+                for (int dx = -2; dx <= 2; ++dx) {
+                    const int x = cx + dx, y = cy + dy;
+                    if (x < 0 || x > 15 || y < 0 || y > 15) continue;
+                    const unsigned slot = unsigned((dy + 2) * 5 + dx + 2);
+                    if (c.m_r[13] & (1u << slot)) continue;
+                    const unsigned cell = unsigned(x + 16 * y);
+                    state->car_cells[cell >> 5] |= 1u << (cell & 31);
+                }
+        }
+    }
     if (budget != kGameBudget || (state && state->custom_budget) || level > 0 || changed) {
         c.bus->write_dword(kBudgetAddr, budget);
         changed = budget != kGameBudget;
@@ -97,6 +115,27 @@ void hook_draw_list(Cpu &c) {
     c.bus->write_byte(0x5016c0, uint8_t(n));
     for (int i = 0; i < n; i++) c.bus->write_byte(0x5016c1 + uint32_t(i), list[i]);
     if (state && state->diagnostics) state->measured.selected_cells = uint32_t(n);
+}
+
+void hook_car_cell(Cpu &c) {
+    const auto *state = c.bus->scenery();
+    if (!state || state->width <= 496 || state->original_selection) return;
+    // Just before chkbit: r3 is the original bitmap word, r4 the bit index,
+    // r6 the car. Both revisions store its course cell at offset 0x2e.
+    const uint32_t cell = c.bus->read_word(c.m_r[6] + 0x2e);
+    if (cell < 256) c.m_r[3] |= state->car_cells[cell >> 5];
+}
+
+void hook_car_horizontal(Cpu &c) {
+    const auto *state = c.bus->scenery();
+    if (!state || state->width <= 496 || state->original_selection) return;
+    // The game has already rounded abs(camera X) to integer and subtracted
+    // its car-size allowance. It rejects when integer Z <= this threshold.
+    // Scale only that positive threshold; no TGP result, Z or FP state changes.
+    // Integer floor keeps the strict comparison conservative at the boundary.
+    const int32_t threshold = int32_t(c.m_r[16]);
+    if (threshold > 0)
+        c.m_r[16] = uint32_t(uint64_t(threshold) * 496 / uint32_t(state->width));
 }
 
 void hook_scenery_cost(Cpu &c) {
