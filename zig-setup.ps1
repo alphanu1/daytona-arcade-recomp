@@ -1,8 +1,9 @@
 #Requires -Version 5.1
 
 param(
-    [switch]$NoGitPull,
+    [switch]$GitPull,
     [switch]$BackupFiles,
+    [switch]$UsePowerShell,
     [string]$BuildFolder
 )
 $DEFAULT_BUILD_FOLDER = "build" # build-zig
@@ -14,7 +15,8 @@ $ErrorActionPreference = "Stop"
 # This script:
 #   - Requires Administrator privileges
 #   - Updates the main Git repository
-#   - Installs Git, Python, CMake if missing
+#   - Installs Git and CMake if missing
+#   - Installs Python if missing (unless -UsePowerShell is selected)
 #   - Installs Ninja if missing
 #   - Installs Zig 0.17.0 if missing
 #   - Detects the actual installed tool locations
@@ -23,6 +25,7 @@ $ErrorActionPreference = "Stop"
 #   - Fetches the pinned external repositories
 #   - Performs the native Windows Zig build if a ROM exists
 #   - Enable Powershell scripts with powershell -ExecutionPolicy Bypass -File zig-setup.ps1 or  Set-ExecutionPolicy unrestricted
+#   - To recompile without Python or pulling from github - powershell -ExecutionPolicy Bypass -File zig-setup-revised.ps1 -UsePowerShell
 #
 # External repositories remain pinned to known commits.
 # Only the main Daytona repository is updated with git pull.
@@ -100,12 +103,16 @@ if (-not $principal.IsInRole(
     )
 
     # Preserve command-line switches when elevating.
-    if ($NoGitPull) {
-        $arguments += "-NoGitPull"
+    if ($GitPull) {
+        $arguments += "-GitPull"
     }
 	
 	if ($BackupFiles) {
 		$arguments += "-BackupFiles"
+	}
+	
+	if ($UsePowerShell) {
+		$argusments += "-UsePowerShell"
 	}
 	
 	if (-not [string]::IsNullOrWhiteSpace($BuildFolder)) {
@@ -170,14 +177,14 @@ Write-Host "Project directory:"
 Write-Host "  $SCRIPT_DIR"
 Write-Host
 
-if ($NoGitPull) {
+if ($GitPull) {
     Write-Host "Git pull:"
-    Write-Host "  DISABLED (-NoGitPull)"
+    Write-Host "  ENABLED (-GitPull)"
     Write-Host
 }
 else {
     Write-Host "Git pull:"
-    Write-Host "  ENABLED"
+    Write-Host "  DISABLED"
     Write-Host
 }
 
@@ -376,23 +383,15 @@ function Clone-PinnedRepository(
 # Update main Daytona repository
 # ------------------------------------------------------------
 
-if ($NoGitPull) {
+if ($GitPull) {
 
-    Write-Host
-    Write-Host "============================================================"
-    Write-Host " Skipping Git pull"
-    Write-Host "============================================================"
-    Write-Host
-    Write-Host "Git pull disabled by -NoGitPull."
-    Write-Host
-
-}
-else {
 
     Write-Host
     Write-Host "============================================================"
     Write-Host " Updating Daytona source repository"
     Write-Host "============================================================"
+    Write-Host
+    Write-Host "Git pull enabled by -GitPull."
     Write-Host
 
     if (-not (Test-Path (Join-Path $SCRIPT_DIR ".git"))) {
@@ -416,6 +415,14 @@ else {
 
     Write-Host
     Write-Host "Daytona repository is up to date."
+    Write-Host
+}
+else {
+
+    Write-Host
+    Write-Host "============================================================"
+    Write-Host " Skipping Git pull"
+    Write-Host "============================================================"
     Write-Host
 }
 
@@ -458,40 +465,55 @@ Write-Host "  $gitExe"
 
 
 # ------------------------------------------------------------
-# Check / install Python
+# Check / install Python (only needed by the Python recompiler)
 # ------------------------------------------------------------
 
-Write-Host
-Write-Host "============================================================"
-Write-Host " Checking Python"
-Write-Host "============================================================"
-Write-Host
+$pythonExe = $null
 
-Refresh-Path
+if (-not $UsePowerShell) {
 
-if (-not (Test-CommandExists "python.exe")) {
-
-    Write-Host "Python was not found."
-    Write-Host "Installing Python 3.12 using winget..."
+    Write-Host
+    Write-Host "============================================================"
+    Write-Host " Checking Python"
+    Write-Host "============================================================"
     Write-Host
 
-    winget install `
-        --id Python.Python.3.12 `
-        --exact `
-        --accept-source-agreements `
-        --accept-package-agreements
+    Refresh-Path
 
-    if ($LASTEXITCODE -ne 0) {
-        throw "Python installation failed."
+    if (-not (Test-CommandExists "python.exe")) {
+
+        Write-Host "Python was not found."
+        Write-Host "Installing Python 3.12 using winget..."
+        Write-Host
+
+        winget install `
+            --id Python.Python.3.12 `
+            --exact `
+            --accept-source-agreements `
+            --accept-package-agreements
+
+        if ($LASTEXITCODE -ne 0) {
+            throw "Python installation failed."
+        }
+
+        Refresh-Path
     }
 
-    Refresh-Path
+    $pythonExe = Find-Executable "python.exe"
+
+    if (-not $pythonExe) {
+        throw "Python could not be located after installation."
+    }
+
+    Write-Host "Python:"
+    Write-Host "  $pythonExe"
 }
-
-$pythonExe = Find-Executable "python.exe"
-
-Write-Host "Python:"
-Write-Host "  $pythonExe"
+else {
+    Write-Host
+    Write-Host "PowerShell recompiler selected."
+    Write-Host "Python will not be installed or required."
+    Write-Host
+}
 
 
 # ------------------------------------------------------------
@@ -1251,17 +1273,50 @@ Write-Host " Running Windows recompiler"
 Write-Host "============================================================"
 Write-Host
 
-& $pythonExe `
-    ".\scripts\recompile.py" `
-    --set `
-    daytona93 `
-    --build-dir `
-    $buildDir `
-    --config `
-    Release
+if ($UsePowerShell) {
+    $recompilemethod = "powershell.exe"
+    $scriptname = "recompile.ps1"
+    $recompileScript = Join-Path $SCRIPT_DIR "scripts\\$scriptname"
+
+    if (-not (Test-Path -LiteralPath $recompileScript -PathType Leaf)) {
+        throw "PowerShell recompiler was not found: $recompileScript"
+    }
+
+    Write-Host "Recompiler: PowerShell"
+    Write-Host "Script:     $recompileScript"
+
+    & $recompilemethod `
+        -NoProfile `
+        -ExecutionPolicy Bypass `
+        -File $recompileScript `
+        -Set daytona93 `
+        -BuildDir $buildDir `
+        -Config Release
+}
+else {
+    $recompilemethod = $pythonExe
+    $scriptname = "recompile.py"
+    $recompileScript = Join-Path $SCRIPT_DIR "scripts\\$scriptname"
+
+    if (-not (Test-Path -LiteralPath $recompileScript -PathType Leaf)) {
+        throw "Python recompiler was not found: $recompileScript"
+    }
+
+    Write-Host "Recompiler: Python"
+    Write-Host "Script:     $recompileScript"
+
+    & $recompilemethod `
+        $recompileScript `
+        --set `
+        daytona93 `
+        --build-dir `
+        $buildDir `
+        --config `
+        Release
+}
 
 if ($LASTEXITCODE -ne 0) {
-    throw "Windows recompiler failed."
+    throw "Windows recompiler failed with exit code $LASTEXITCODE."
 }
 
 
