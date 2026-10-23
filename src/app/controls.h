@@ -73,6 +73,8 @@ struct Controls {
     float joy_deadzone = 0.02f;   // joystick (wheel, pedal) axis dead zone
     float wheel_sensitivity = 1.0f; // response curve, 0.25..3; 1 is linear
     bool steer_invert = false;
+    // Menu selection with a pad (off: the plain mapping, as the original hardware): see Controls::sample.
+    bool gamepad_menu = false;
 
     void set_defaults();
     // Current value of an action, 0..1 (keys and buttons are 0 or 1).
@@ -86,8 +88,14 @@ struct Controls {
     // Live values for the UI
     float steer = 0, accel = 0, brake = 0;
     int gear = 1;
+    // Menus (circuit select, transmission select), set by the game loop each frame: see Controls::sample.
+    bool slow_steer = false;  // a 2D menu screen is showing
+    bool menu_event = false;  // a new menu screen opened this frame (from the game's memory)
+    int menu_sel = -1, menu_dir = 0; // the side the wheel is held at (-1 left, 0 centre, 1 right) and the last pushed direction
+    int menu_stage = 0, last_menu_stage = 0, menu_age = 0; // 0 circuit select, 1 transmission select; frames in the menus
 private:
     bool held_[kNumActions] = {};
+    bool was_menu_ = false;
 };
 
 } // namespace app
