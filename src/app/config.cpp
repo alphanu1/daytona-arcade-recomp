@@ -69,6 +69,12 @@ void Config::read(std::istream &f) {
             controls.wheel_sensitivity = std::isfinite(value) ? std::clamp(value, 0.25f, 3.0f) : 1.0f;
         }
         else if (k == "steer_invert") controls.steer_invert = v == "1";
+        else if (k == "gamepad_fix") controls.gamepad_fix = v == "1";
+        else if (k == "wheel_weight") controls.wheel_weight = std::clamp(std::strtof(v.c_str(), nullptr), 0.3f, 1.2f);
+        else if (k == "wheel_turnin") controls.wheel_turnin = std::clamp(std::strtof(v.c_str(), nullptr), 0.02f, 0.2f);
+        else if (k == "wheel_return") controls.wheel_return = std::clamp(std::strtof(v.c_str(), nullptr), 0.02f, 0.3f);
+        else if (k == "stick_range") controls.stick_range = std::clamp(std::strtof(v.c_str(), nullptr), 0.4f, 1.0f);
+        else if (k == "stick_expo") controls.stick_expo = std::clamp(std::strtof(v.c_str(), nullptr), 1.0f, 4.0f);
         else if (k == "link") link = v == "1";
         else if (k == "link_port") link_port = std::clamp(std::atoi(v.c_str()), 1, 65535);
         else if (k == "link_next") link_next = v;
@@ -120,6 +126,12 @@ void Config::write(std::ostream &f) const {
     f << "deadzone=" << controls.deadzone << "\n";
     f << "joy_deadzone=" << controls.joy_deadzone << "\n";
     f << "wheel_sensitivity=" << controls.wheel_sensitivity << "\n";
+    f << "gamepad_fix=" << (controls.gamepad_fix ? 1 : 0) << "\n";
+    f << "wheel_weight=" << controls.wheel_weight << "\n";
+    f << "wheel_turnin=" << controls.wheel_turnin << "\n";
+    f << "wheel_return=" << controls.wheel_return << "\n";
+    f << "stick_range=" << controls.stick_range << "\n";
+    f << "stick_expo=" << controls.stick_expo << "\n";
     f << "steer_invert=" << (controls.steer_invert ? 1 : 0) << "\n";
     f << "link=" << (link ? 1 : 0) << "\n";
     f << "link_port=" << link_port << "\n";

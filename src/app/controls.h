@@ -73,6 +73,13 @@ struct Controls {
     float joy_deadzone = 0.02f;   // joystick (wheel, pedal) axis dead zone
     float wheel_sensitivity = 1.0f; // response curve, 0.25..3; 1 is linear
     bool steer_invert = false;
+    // Gamepad steering fix: on = the pad steers like the arcade wheel feels (see docs/gamepad-steering.md), off = the plain direct mapping.
+    bool gamepad_fix = false;
+    float wheel_weight = 1.0f;  // D-pad: the lock a held push keeps as the spring stiffens (1 = the arcade's 100 / 78 / 64 / 54%)
+    float wheel_turnin = 0.06f; // D-pad: lock gained per frame at the lightest spring
+    float wheel_return = 0.08f; // D-pad: lock returned per frame at the lightest spring
+    float stick_range = 0.6f;   // pad stick: share of the lock reached by normal travel (full lock only at the very end)
+    float stick_expo = 2.6f;    // pad stick: 1 = linear, higher = small pushes turn less
 
     void set_defaults();
     // Current value of an action, 0..1 (keys and buttons are 0 or 1).
@@ -86,6 +93,11 @@ struct Controls {
     // Live values for the UI
     float steer = 0, accel = 0, brake = 0;
     int gear = 1;
+    // Set by the game loop each frame, from the game's memory and the drive board (see main.cpp):
+    float speed = 0.f;         // car speed, 0..~1 (HUD km/h / 215)
+    float spring = 7.f / 31.f; // the wheel's centring spring as the game commands it: 0.23 (slow) .. 0.42 (above ~255 km/h)
+    bool seen_analog = false;  // the pad stick has read a value between 0 and full: a real analogue stick, not a digital one
+    int mid_frames = 0;        // consecutive frames the pad stick has read between 0 and full
 private:
     bool held_[kNumActions] = {};
 };
