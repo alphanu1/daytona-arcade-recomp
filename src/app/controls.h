@@ -85,6 +85,10 @@ struct Controls {
     // Current value of an action, 0..1 (keys and buttons are 0 or 1).
     float value(Action a, const bool *keys, const Devices &d) const;
     bool analog_source(Action a, const Devices &d) const; // an axis binding is in use
+    // Pad-only helpers for the steering fix: a key / D-pad button push (no axes), and whether the steering is a pad's
+    // stick (a gamepad axis, or a joystick axis on a device that is a gamepad) and not a real wheel.
+    float digital_value(Action a, const bool *keys, const Devices &d) const;
+    bool pad_stick_bound(const Devices &d) const;
 
     // Build this frame's I/O board inputs. Keyboard steering ramps; analogue
     // steering and pedals are direct.

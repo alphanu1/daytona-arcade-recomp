@@ -209,6 +209,23 @@ float Controls::value(Action a, const bool *keys, const Devices &d) const {
     return std::max({v, joy, touch[a]});
 }
 
+float Controls::digital_value(Action a, const bool *keys, const Devices &d) const {
+    const Binding &b = bind[a];
+    float v = (b.key != SDL_SCANCODE_UNKNOWN && keys && keys[b.key]) ? 1.f : 0.f;
+    if (d.pad && b.pad.kind == PadInput::Button && SDL_GetGamepadButton(d.pad, SDL_GamepadButton(b.pad.index))) v = 1.f;
+    return v;
+}
+
+bool Controls::pad_stick_bound(const Devices &d) const {
+    for (Action a : {SteerLeft, SteerRight}) {
+        if (d.pad && bind[a].pad.kind == PadInput::Axis) return true;
+        if (bind[a].joy.kind == JoyInput::Axis)
+            if (SDL_Joystick *j = d.find(bind[a].joy.guid))
+                if (SDL_IsGamepad(SDL_GetJoystickID(j))) return true;
+    }
+    return false;
+}
+
 bool Controls::analog_source(Action a, const Devices &d) const {
     return (touch_steering && (a == SteerLeft || a == SteerRight)) ||
            (d.pad && bind[a].pad.kind == PadInput::Axis) || (bind[a].joy.kind == JoyInput::Axis && d.find(bind[a].joy.guid));
@@ -222,16 +239,18 @@ rt::Inputs Controls::sample(const bool *keys, const Devices &d) {
     if (steer_invert) target = -target;
     const bool analog = (analog_source(SteerLeft, d) || analog_source(SteerRight, d)) &&
                         !(keys && (keys[bind[SteerLeft].key] || keys[bind[SteerRight].key]));
-    // Races. A pad stick (not a wheel or the touch screen) is the only analogue source the fix reshapes.
-    const bool stick = analog && d.pad && !touch_steering &&
-                       (bind[SteerLeft].pad.kind == PadInput::Axis || bind[SteerRight].pad.kind == PadInput::Axis) &&
-                       bind[SteerLeft].joy.kind != JoyInput::Axis && bind[SteerRight].joy.kind != JoyInput::Axis;
+    // Races. The fix reshapes a pad's D-pad and stick; a real wheel and the touch screen stay direct.
+    const float dl = digital_value(SteerLeft, keys, d), dr = digital_value(SteerRight, keys, d);
+    const float push = (steer_invert ? dl - dr : dr - dl); // keys and D-pad (button) pushes, apart from any axis
+    const bool pad_stick = !touch_steering && pad_stick_bound(d);
     // Some handhelds' sticks report only 0 / -1 / +1: treat such a stick like the D-pad until a value in between holds.
-    mid_frames = (stick && std::fabs(target) > 0.03f && std::fabs(target) < 0.97f) ? mid_frames + 1 : 0;
+    mid_frames = (pad_stick && push == 0.f && std::fabs(target) > 0.03f && std::fabs(target) < 0.97f) ? mid_frames + 1 : 0;
     if (mid_frames >= 12) seen_analog = true;
-    if (!gamepad_fix || (analog && !stick)) {
+    if (!gamepad_fix) {
         steer = analog ? target : steer + std::clamp(target - steer, -0.12f, 0.12f); // the plain direct mapping
-    } else if (stick && seen_analog) {
+    } else if (push == 0.f && analog && !pad_stick) {
+        steer = target; // a wheel or the touch screen: direct
+    } else if (push == 0.f && analog && pad_stick && seen_analog) {
         // The game turns the car from the wheel position as it is, at every speed (research: docs/gamepad-steering.md), so
         // the arcade's heavy wheel only limits how far a person turns it. A stick curve with the same idea: most of the
         // travel reaches only stick_range of the lock, the last 15% opens up to the full lock, and the lock shrinks with speed.
@@ -243,12 +262,14 @@ rt::Inputs Controls::sample(const bool *keys, const Devices &d) {
         const float curved = std::copysign(stick_range * std::pow(a, stick_expo) + (1.f - stick_range) * u * u * (3.f - 2.f * u), target);
         steer += (curved * std::sqrt(speed_fac) - steer) * kSmooth;
     } else {
-        // D-pad (or keys) as the arcade wheel: a steady push against the centring spring the game commands, which steps up
-        // with speed. The lock the push balances at is k0 / k of the full lock (100 / 78 / 64 / 54%), it is gained more
-        // slowly as the spring stiffens, and the spring brings the wheel back to centre faster.
+        // D-pad (or keys, or a stick that never reports in-between values) as the arcade wheel: a steady push against the
+        // centring spring the game commands, which steps up with speed. The lock the push balances at is k0 / k of the full
+        // lock (100 / 78 / 64 / 54%), it is gained more slowly as the spring stiffens, and the spring brings the wheel back
+        // to centre faster.
         constexpr float k0 = 7.f / 31.f; // the lightest spring the game commands
         const float k = std::max(spring, k0);
-        const float t = std::clamp(target, -1.f, 1.f) * std::clamp(wheel_weight * k0 / k, 0.f, 1.f);
+        const float in = push != 0.f ? push : target;
+        const float t = std::clamp(in, -1.f, 1.f) * std::clamp(wheel_weight * k0 / k, 0.f, 1.f);
         const bool out = t != 0.f && t * steer >= 0.f && std::fabs(t) > std::fabs(steer);
         const float rate = out ? wheel_turnin * (k0 / k) : wheel_return * (k / k0);
         steer += std::clamp(t - steer, -rate, rate);
