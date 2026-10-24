@@ -9,3 +9,6 @@
 # two courses), kept where two visibility masks (r13 from 0x171f8, r9 from
 # 0x1727c) allow. 0x17828 then draws every object of every listed cell.
 00017078 draw_list
+# Opponent visibility; same registers/cell offset as Revision A.
+00008548 car_cell
+00008598 car_horizontal

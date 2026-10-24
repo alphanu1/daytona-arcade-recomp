@@ -2,6 +2,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <cstdint>
 #include <string_view>
@@ -43,6 +44,9 @@ struct SceneryState {
     bool diagnostics = false;
     bool original_selection = false; // headless comparison control only
     SceneryMeasurements measured;
+    // Car-only candidates from the original 5x5 neighbourhood, without the
+    // directional mask. Never written back to the game's shared cell bitmap.
+    std::array<uint32_t, 8> car_cells{};
 
     uint32_t budget(int distance) const {
         return custom_budget ? custom_budget : automatic_scenery_budget(width, distance);
