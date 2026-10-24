@@ -533,6 +533,10 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
             if (ImGui::SliderFloat("Dead zone", &c.deadzone, 0.0f, 0.4f, "%.2f")) cfg_.save();
             ImGui::SameLine();
             if (ImGui::Checkbox("Invert steering", &c.steer_invert)) cfg_.save();
+            if (ImGui::Checkbox("Gamepad menu selection", &c.gamepad_menu)) cfg_.save();
+            ImGui::TextDisabled("Circuit and transmission select with a pad: one push moves one step and the wheel stays there\n"
+                                "(no need to hold a direction), and each menu opens on its first option. Off: the menus read\n"
+                                "the steering as the original hardware does.");
             ImGui::SetNextItemWidth(200);
             if (ImGui::SliderFloat("Wheel dead zone (Experimental)", &c.joy_deadzone, 0.0f, 0.4f, "%.2f")) cfg_.save();
             ImGui::SetNextItemWidth(200);

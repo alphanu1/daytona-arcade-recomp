@@ -180,6 +180,7 @@ public:
     bool system24_gpu_compatible() const;
     const std::vector<GeoPoly> &gpu_polys() const;
     int gpu_windows() const { return gpu_windows_; }
+    size_t poly_count() const { return poly_count_; } // polygons in the last screen update
     const VideoMem &gpu_mem() const { return gpu_mem_; }
     int crtc_x() const { return crtc_x_; }
     int crtc_y() const { return crtc_y_; }
@@ -290,6 +291,7 @@ private:
     const std::vector<GeoPoly> *gpu_polys_ = nullptr;
     VideoMem gpu_mem_{};
     int gpu_windows_ = 0;
+    size_t poly_count_ = 0;
     bool external_3d_ = false, desktop_ = false;
     std::vector<uint16_t> gpu_tile_words_;
     std::vector<uint32_t> gpu_pens_;
