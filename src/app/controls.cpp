@@ -209,6 +209,23 @@ float Controls::value(Action a, const bool *keys, const Devices &d) const {
     return std::max({v, joy, touch[a]});
 }
 
+float Controls::digital_value(Action a, const bool *keys, const Devices &d) const {
+    const Binding &b = bind[a];
+    float v = (b.key != SDL_SCANCODE_UNKNOWN && keys && keys[b.key]) ? 1.f : 0.f;
+    if (d.pad && b.pad.kind == PadInput::Button && SDL_GetGamepadButton(d.pad, SDL_GamepadButton(b.pad.index))) v = 1.f;
+    return v;
+}
+
+bool Controls::pad_stick_bound(const Devices &d) const {
+    for (Action a : {SteerLeft, SteerRight}) {
+        if (d.pad && bind[a].pad.kind == PadInput::Axis) return true;
+        if (bind[a].joy.kind == JoyInput::Axis)
+            if (SDL_Joystick *j = d.find(bind[a].joy.guid))
+                if (SDL_IsGamepad(SDL_GetJoystickID(j))) return true;
+    }
+    return false;
+}
+
 bool Controls::analog_source(Action a, const Devices &d) const {
     return (touch_steering && (a == SteerLeft || a == SteerRight)) ||
            (d.pad && bind[a].pad.kind == PadInput::Axis) || (bind[a].joy.kind == JoyInput::Axis && d.find(bind[a].joy.guid));
@@ -222,7 +239,56 @@ rt::Inputs Controls::sample(const bool *keys, const Devices &d) {
     if (steer_invert) target = -target;
     const bool analog = (analog_source(SteerLeft, d) || analog_source(SteerRight, d)) &&
                         !(keys && (keys[bind[SteerLeft].key] || keys[bind[SteerRight].key]));
-    steer = analog ? target : steer + std::clamp(target - steer, -0.12f, 0.12f);
+    // Races. The fix reshapes a pad's D-pad and stick; a real wheel and the touch screen stay direct.
+    const float dl = digital_value(SteerLeft, keys, d), dr = digital_value(SteerRight, keys, d);
+    const float push = (steer_invert ? dl - dr : dr - dl); // keys and D-pad (button) pushes, apart from any axis
+    const bool pad_stick = !touch_steering && pad_stick_bound(d);
+    // Some handhelds' sticks report only 0 / -1 / +1: treat such a stick like the D-pad until it proves otherwise. Even
+    // such a stick can read one in-between value for a single frame while flicking across centre or full, so a hold needs
+    // at least 2 frames in a row to count; a real analogue stick clears that almost the first time it is nudged. 3 such
+    // holds (not necessarily back to back: normal driving passes through centre/full constantly, which made a single run
+    // of 12 straight frames nearly unreachable and left the D-pad model, and its sliders, driving the stick) are enough.
+    if (pad_stick && push == 0.f && std::fabs(target) > 0.03f && std::fabs(target) < 0.97f) {
+        if (++run_frames == 2) mid_frames++;
+    } else run_frames = 0;
+    if (mid_frames >= 3) seen_analog = true;
+    if (!gamepad_fix) {
+        steer = analog ? target : steer + std::clamp(target - steer, -0.12f, 0.12f); // the plain direct mapping
+    } else if (push == 0.f && analog && !pad_stick) {
+        steer = target; // a wheel or the touch screen: direct
+    } else if (push == 0.f && analog && pad_stick && seen_analog) {
+        // The game turns the car from the wheel position as it is, at every speed (research: docs/gamepad-steering.md), so
+        // the arcade's heavy wheel only limits how far a person turns it. A stick curve with the same idea: most of the
+        // travel reaches only stick_range of the lock, the last 15% opens up to the full lock, and the lock shrinks with speed.
+        constexpr float kSpeedCut = 0.45f, kSmooth = 0.18f;
+        const float v = std::clamp(speed, 0.f, 1.2f);
+        const float speed_fac = 1.f / (1.f + kSpeedCut * v * v);
+        const float a = std::fabs(target);
+        const float u = std::clamp((a - 0.85f) / 0.15f, 0.f, 1.f);
+        const float curved = std::copysign(stick_range * std::pow(a, stick_expo) + (1.f - stick_range) * u * u * (3.f - 2.f * u), target);
+        steer += (curved * std::sqrt(speed_fac) - steer) * kSmooth * speed_fac; // turn-in slows with speed too, not just the lock
+    } else {
+        // D-pad (or keys, or a stick that never reports in-between values) as the arcade wheel: a steady push against the
+        // centring spring the game commands, which steps up with speed. The lock the push balances at is sqrt(k0 / k) of the
+        // full lock (100 / 88 / 80 / 73%, a plain k0 / k falls off too steeply for a push that can't lean into the spring the
+        // way a wheel's own weight would); it is gained more slowly as the spring stiffens, and the spring brings the wheel
+        // back to centre faster, both at the same square root, not the plain ratio.
+        constexpr float k0 = 7.f / 31.f; // the lightest spring the game commands
+        constexpr int kReleaseHold = 3; // frames a let-go push still counts as held, so one gap between taps doesn't
+                                         // snap the fast speed-scaled return rate on early, same as seen_analog's debounce
+        const float k = std::max(spring, k0);
+        if (push != 0.f) { dpad_hold = push; dpad_release_frames = 0; }
+        else if (dpad_release_frames < kReleaseHold) dpad_release_frames++;
+        const float in = (push != 0.f || dpad_release_frames < kReleaseHold) ? dpad_hold : target;
+        // Same softening as the rates below: the spring is a force to push against, not a hard stop, so the lock it
+        // settles at shouldn't fall off as steeply with speed as the raw ratio would.
+        const float t = std::clamp(in, -1.f, 1.f) * std::clamp(wheel_weight * std::sqrt(k0 / k), 0.f, 1.f);
+        const bool out = t != 0.f && t * steer >= 0.f && std::fabs(t) > std::fabs(steer);
+        // sqrt, not linear, so the turn-in-slows / return-speeds-up spread at speed is softer: still true to the
+        // arcade's heavier-at-speed feel, but a quick reversal (a chicane) can still get real opposite lock in time.
+        const float rate = out ? wheel_turnin * std::sqrt(k0 / k) : wheel_return * std::sqrt(k / k0);
+        steer += std::clamp(t - steer, -rate, rate);
+    }
     accel = value(Accelerate, keys, d);
     brake = value(Brake, keys, d);
     // ADC ranges (MAME's daytona ports): steering 0x20-0xe0 centred on 0x80, pedals 0x20 (up) to 0xe0 (floored)

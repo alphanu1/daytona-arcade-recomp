@@ -543,6 +543,22 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
             }
             ImGui::TextDisabled("100%%: linear. Lower: gentler near centre. Higher: more responsive.\n"
                                 "Wheel/joystick steering-axis bindings only; full lock is preserved.");
+            if (ImGui::Checkbox("Gamepad steering fix", &c.gamepad_fix)) cfg_.save();
+            ImGui::TextDisabled("On: the D-pad steers like the arcade wheel (the lock you can hold shrinks as the car gets\n"
+                                "faster, and the wheel springs back) and a pad stick has a curve. Off: the plain direct\n"
+                                "mapping. Wheels, the touch screen and the menus are not affected.");
+            if (c.gamepad_fix) {
+                ImGui::SetNextItemWidth(200);
+                if (ImGui::SliderFloat("D-pad wheel weight", &c.wheel_weight, 0.3f, 1.2f, "%.2f")) cfg_.save();
+                ImGui::SetNextItemWidth(200);
+                if (ImGui::SliderFloat("D-pad turn-in speed", &c.wheel_turnin, 0.02f, 0.2f, "%.2f")) cfg_.save();
+                ImGui::SetNextItemWidth(200);
+                if (ImGui::SliderFloat("D-pad return speed", &c.wheel_return, 0.02f, 0.3f, "%.2f")) cfg_.save();
+                ImGui::SetNextItemWidth(200);
+                if (ImGui::SliderFloat("Stick range", &c.stick_range, 0.4f, 1.0f, "%.2f")) cfg_.save();
+                ImGui::SetNextItemWidth(200);
+                if (ImGui::SliderFloat("Stick response (1 = linear)", &c.stick_expo, 1.0f, 4.0f, "%.1f")) cfg_.save();
+            }
             ImGui::TextDisabled("Triggers, sticks, wheels and pedals are analogue. To bind a wheel or pedal axis,\n"
                                 "click its button, then turn the wheel or press the pedal as far as you want full\n"
                                 "lock or full travel to be, and let go: that sets its range.");

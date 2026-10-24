@@ -520,6 +520,11 @@ int main(int argc, char **argv) {
             rt::GameLoop::set_draw_distance(cfg.draw_distance);
             game->set_draw_budget(cfg.draw_budget);
             for (int frames = pacer.frames(now); frames > 0; --frames) {
+                { // car speed, from the game's memory: an integer at 0x505198, the HUD km/h is about 1.055 * x - 14.5
+                    const int32_t raw = int32_t(game->board().read_dword(0x505198));
+                    const float kmh = raw > 0 && raw < 400 ? std::max(0.f, 1.055f * float(raw) - 14.5f) : 0.f;
+                    cfg.controls.speed = kmh / 215.f;
+                }
                 rt::Inputs inputs = cfg.controls.sample(SDL_GetKeyboardState(nullptr), devices);
                 if (cfg.hold_test != test_hold.armed()) cfg.hold_test ? test_hold.arm() : test_hold.cancel();
                 if (test_hold.apply(game->frames(), inputs.in0)) cfg.hold_test = false; // held: the box clears
@@ -550,6 +555,12 @@ int main(int argc, char **argv) {
 #else
                        false);
 #endif
+            { // the wheel's centring spring, as the game commands it: the D-pad steering works against it
+                using E = rt::DriveBoard::Effect;
+                const rt::DriveBoard &db = ffb.state();
+                if (db.motor_on && (db.effect == E::Centre || db.effect == E::CentreDeadZone)) cfg.controls.spring = db.level(db.effect);
+                else if (!db.motor_on || db.effect == E::None || db.effect == E::Resistance) cfg.controls.spring = 7.f / 31.f;
+            }
             launcher.set_ffb_device(ffb.device_kind());
             launcher.set_link_status(link_status(game->board().comm_board(), link.get(), cfg));
             if (game->sound()) {
