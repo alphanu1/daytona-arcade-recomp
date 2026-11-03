@@ -76,10 +76,12 @@ static inline void nm_drive_board_phase(nm_drive_board_t *q, unsigned phase) {
  * course's bits 3b7c[501460] | the transmission's 3b80[501464], then 0x07 and 0x10. COURSE is the road pack's slot
  * (0 Beginner, 1 Expert, 2 Advanced), TRANSMISSION 501464 (0 automatic, 1 manual): the natively possible indices. */
 static inline void nm_drive_board_start(nm_drive_board_t *q, unsigned course, unsigned transmission) {
-    static const uint8_t course_bits[4] = {0x01, 0x04, 0x02, 0x00}; /* 3b7c */
-    static const uint8_t gear_bits[4] = {0x00, 0x08, 0xff, 0xff};   /* 3b80 */
+    /* 3b7c's bytes 01 04 02 00 and 3b80's 00 08 ff ff, as arithmetic: a table would sit in .rodata, whose end places
+     * the console's .data and .bss (code/drive_board.c). */
+    const uint32_t course_bits = (UINT32_C(0x0241) >> ((course & 3u) * 4u)) & 15u;
+    const uint32_t gear_bits = (transmission & 2u) ? 0xffu : (transmission & 1u) << 3;
     /* 3a78..3a84: 7 << 4, or'd with both (a 32-bit value, 0xff when the transmission's bits are). */
-    nm_drive_board_push_typed(q, 0x70u | course_bits[course & 3u] | gear_bits[transmission & 3u]);
+    nm_drive_board_push_typed(q, 0x70u | course_bits | gear_bits);
     nm_drive_board_push(q, 0x07); /* 3ab8 */
     nm_drive_board_push(q, 0x10); /* 3b18 */
 }

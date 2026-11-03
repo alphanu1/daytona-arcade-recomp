@@ -7,6 +7,7 @@
 # contexts (reg): the inner loops and the per-object paths whose code shares the I-cache (derive minimises it).
 @data_residue 0x3600
 @heap_residue 0x1a54
+@bss_last drive_board.o
 @pad sq_submit_object 0x260
 @pad practice_update 0x200
 group	name	pattern	offset	slot	bytes	ms	contexts

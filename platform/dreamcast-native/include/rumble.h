@@ -10,7 +10,7 @@
  *   0x0-, 0x7-  everything stops: the scene changes (01 03 07, the goal's and the results' 09, the game end's 08) and
  *               the race start's parameter; any other type too (the queue holds none).
  * The inspector's pause stops everything as well (nm_rumble_stop). The output is the larger of an active jolt's
- * power and the continuous level; the console sends it to the packs only when it changes (code/drive_board.c).
+ * power and the continuous level; the console sends it to each pack until that pack has it (code/drive_board.c).
  * Shared by code/drive_board.c and tests/test_rumble.c. */
 #ifndef DAYTONA_NATIVE_RUMBLE_H
 #define DAYTONA_NATIVE_RUMBLE_H

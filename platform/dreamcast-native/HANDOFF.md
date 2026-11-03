@@ -265,11 +265,14 @@ program makes them, and played on a Dreamcast rumble pack. No gameplay state is 
   counter. At the run's end: "Native drive board: N bytes sent (FNV-1a H); rumble pack commands M".
 - **The rumble player** (`include/rumble.h`, ours): 0x5-/0x6- level n a jolt of power min(n, 7), at least 1, for
   NATIVE_RUMBLE_JOLT_TICKS (default 9, 150 ms); 0x4- n the continuous level min(n, 7); 0x1-..0x3- the level 0; 0x0-,
-  0x7- (and any other type) stop everything; the inspector's pause too. Output max(jolt, level), sent only when it
-  changes, to every port with a pack (`enj_rumble_effect_set_raw`: cont 1, motor 1, fpow, freq NATIVE_RUMBLE_FREQ default
-  26, inc 0; power 0 the stop word, motor 1 only); after enDjinn's loop the packs get the stop directly (its update no
-  longer runs). NATIVE_RUMBLE=0 removes the player (ELF suffix -norumble), the stream stays. `tests/test_rumble.c`
-  (make check, CTest `native_rumble`): 281 checks of the player and of the queue's rules.
+  0x7- (and any other type) stop everything; the inspector's pause too. Output max(jolt, level), to every port with a
+  pack until that pack has taken it (`purupuru_rumble_raw`: cont 1, motor 1, fpow, freq NATIVE_RUMBLE_FREQ default 26,
+  inc 0; power 0 the stop word, motor 1 only). Not through enDjinn's rumble queue: KOS refuses a frame (MAPLE_EAGAIN)
+  while the pack's previous one is unanswered and enDjinn drops a refused effect, so a lost stop could leave a pack
+  running; here each port keeps the power its pack took and the next tick tries again, and a port without a pack
+  counts as standing (a pack plugged in later gets the power). At the run's end the stop is tried until every pack
+  took it (10 tries, 200 ms); the end line counts the refusals. NATIVE_RUMBLE=0 removes the player (ELF suffix -norumble), the stream stays. `tests/test_rumble.c`
+  (make check, CTest `native_rumble`): 287 checks of the player and of the queue's rules.
 - **The check** (`tests/test_drive_lockstep.py`; recipe step `drive_lockstep`; CTest `native_drive_lockstep`, cache
   variable NATIVE_DRIVE_TEST_TRACES, 77 without traces): `m2segment --trace-drive` (`tools/trace_drive.hpp`) writes each
   byte the original wrote with the 5010b0 of its iteration (taken at the call after 1abbc's entry; a byte outside the

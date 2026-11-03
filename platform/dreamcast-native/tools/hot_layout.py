@@ -18,7 +18,9 @@ registration's stack frames (residues about 14.0-16 KiB) against the hot statics
           the registration functions, enDjinn's and KOS's per-frame functions, the updater's functions, each at a
           fixed offset in a slot of fixed size (its size rounded to 32 bytes plus slack); then everything else.
   .bss    everything else, then padding so that the end of the image (KOS's heap start, mm.c sbrk_base) lands at
-          heap_residue mod 16 KiB: the heap's objects keep their cache sets against the statics and the code.
+          heap_residue mod 16 KiB: the heap's objects keep their cache sets against the statics and the code. The
+          objects the config names with `@bss_last FILE...` put their .bss at its end, before the padding: their
+          statics move no other one (code/drive_board.c's, added after the layout).
 
 The hot data block holds the registration's and updater's small hot statics (the renderer's stream and table
 pointers, counters, the car streams' scratch); it lies inside .text (zero bytes for .bss variables in the image,
@@ -104,6 +106,8 @@ def read_config(path):
             f = line[1:].split()
             if f[0] == 'pad':
                 settings.setdefault('pad', {})[f[1]] = int(f[2], 0)
+            elif f[0] == 'bss_last':
+                settings.setdefault('bss_last', []).extend(f[1:])
             else:
                 settings[f[0]] = int(f[1], 0)
             continue
@@ -120,8 +124,10 @@ def read_config(path):
 
 def write_config(path, settings, entries, header):
     lines = list(header)
-    lines += [f'@{k} {v:#x}' for k, v in settings.items() if k != 'pad']
+    lines += [f'@{k} {v:#x}' for k, v in settings.items() if k not in ('pad', 'bss_last')]
     lines += [f'@pad {k} {v:#x}' for k, v in settings.get('pad', {}).items()]
+    if settings.get('bss_last'):
+        lines.append('@bss_last ' + ' '.join(settings['bss_last']))
     lines.append('group\tname\tpattern\toffset\tslot\tbytes\tms\tcontexts')
     lines += [e.row() for e in entries]
     Path(path).write_text('\n'.join(lines)+'\n')
@@ -143,9 +149,13 @@ def write_ld(settings, entries, out):
     lines.append('}')
     if 'heap_residue' in settings:
         r = settings['heap_residue']
-        lines += ['/* The rest of .bss, then the image end (the heap start) at heap_residue mod 16 KiB. */',
-                  '.bss : {', '  *(.dynbss) *(.bss .bss.* .gnu.linkonce.b.*) *(COMMON)',
-                  '  __nm_layout_bss_top = ABSOLUTE(.);',
+        last = ['*' + n for n in settings.get('bss_last', [])]
+        ex = f'EXCLUDE_FILE({" ".join(last)}) ' if last else ''
+        lines += ['/* The rest of .bss (bss_last\'s objects at its end), then the image end (the heap start) at',
+                  ' * heap_residue mod 16 KiB. */',
+                  '.bss : {', f'  *(.dynbss) *({ex}.bss {ex}.bss.* {ex}.gnu.linkonce.b.*) *(COMMON)']
+        lines += [f'  {n}(.bss .bss.*)' for n in last]
+        lines += ['  __nm_layout_bss_top = ABSOLUTE(.);',
                   f'  . += ({0x90000000+r:#x} - __nm_layout_bss_top) % 0x4000;', '}']
     Path(out).write_text('\n'.join(lines)+'\n')
 

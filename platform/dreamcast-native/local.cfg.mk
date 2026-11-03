@@ -1206,7 +1206,7 @@ endif
 ENJ_CFLAGS += -DNM_STEER_CURVE=$(NATIVE_STEER_CURVE) -DNM_STEER_DEADZONE=$(NATIVE_STEER_DEADZONE)
 # The rumble pack (include/rumble.h, code/drive_board.c): the drive board's command stream (include/drive_board.h, the
 # arcade's bytes, always computed: the queue, the race's update and the scenes' fixed bytes) played on the pack of every
-# controller port that has one, through enDjinn (enj_rumble_effect_set_raw, only when the power changes). The mapping is
+# controller port that has one (purupuru_rumble_raw, until each pack has taken the power; enDjinn's port list). The mapping is
 # ours: a pull (0x5-, 0x6-) a timed jolt, 0x4- a continuous level, 0x1-..0x3- the level 0, 0x0- and 0x7- everything off
 # (the inspector's pause too); the output is the larger of the jolt and the level.
 #   NATIVE_RUMBLE (default 1): 0 removes the player (no pack is driven); the stream stays. ELF suffix -norumble when 0.

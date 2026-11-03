@@ -45,8 +45,9 @@ $(addprefix $(ENJ_BUILDDIR)/code/audio/,sfx.o race_sound.o idle_wait.o): DEFINES
 $(ENJ_BUILDDIR)/code/nm_mem.o: DEFINES += -DNDEBUG
 # The drive board's stream and the rumble pack's player (include/drive_board.h, rumble.h): outside the LTO unit too, a
 # call an iteration from the scenes, for size (-Os after ENJ_CFLAGS' -O3): .text has little room before the 8 KiB
-# step that moves the statics (docs/NEXT_LLM_HANDOFF.md, 31 October, "Where the statics sit").
-$(ENJ_BUILDDIR)/code/drive_board.o: DEFINES += -fno-lto -Os
+# step that moves the statics (docs/NEXT_LLM_HANDOFF.md, 31 October, "Where the statics sit"). No switch tables: they
+# would go to .rodata, whose end places .data and .bss (code/drive_board.c).
+$(ENJ_BUILDDIR)/code/drive_board.o: DEFINES += -fno-lto -Os -fno-tree-switch-conversion
 # The scene loader (scene_loader.c: the attract's load in the title's frames) too.
 $(ENJ_BUILDDIR)/code/scene_loader.o: DEFINES += -fno-lto
 # The props (props.c, props_scene.c: cones) and Expert's world actors (expert_actors.c) too.

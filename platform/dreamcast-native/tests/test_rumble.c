@@ -128,9 +128,11 @@ static void stream(void) {
     memset(&q, 0, sizeof q);
     nm_drive_board_push(&q, 0x54); nm_drive_board_push(&q, 0x09); nm_drive_board_push(&q, 0x09); nm_drive_board_push(&q, 0x54);
     CHECK(depth(&q) == 3 && q.last == 0x54);
-    /* The race start: 0x70 | course | transmission, 0x07, 0x10; the parameter is dropped like any typed byte. */
+    /* The race start: 0x70 | course | transmission, 0x07, 0x10; the parameter is dropped like any typed byte. The last
+     * three rows are the tables' other entries (3b7c[3] 00, 3b80[2], [3] ff), which no native race reaches. */
     static const struct { unsigned course, transmission; uint8_t c; } starts[] = {
-        {0, 0, 0x71}, {0, 1, 0x79}, {2, 0, 0x72}, {2, 1, 0x7a}, {1, 0, 0x74}, {1, 1, 0x7c}};
+        {0, 0, 0x71}, {0, 1, 0x79}, {2, 0, 0x72}, {2, 1, 0x7a}, {1, 0, 0x74}, {1, 1, 0x7c},
+        {3, 0, 0x70}, {1, 2, 0xff}, {3, 3, 0xff}};
     for (unsigned i = 0; i < sizeof starts / sizeof starts[0]; ++i) {
         memset(&q, 0, sizeof q);
         nm_drive_board_start(&q, starts[i].course, starts[i].transmission);
