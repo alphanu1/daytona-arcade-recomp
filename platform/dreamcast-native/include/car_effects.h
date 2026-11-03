@@ -251,8 +251,11 @@ static inline int nm_spin_smoke_step(const nm_drive_params_t *p,nm_spin_smoke_t 
 
 /* The scene's tick of the task (code/practice.c and tests/trace_race_native.c, after the wrong-way rule a818):
  * `phase` the race's active phase, `source` the car race.shared.inhibit_owner names, `player` race.cars[0]. Outside
- * phases 20..24 the task does not run and draws nothing. */
-static inline int nm_spin_smoke_tick(const nm_drive_params_t *p,nm_spin_smoke_t *s,unsigned phase,
+ * phases 20..24 the task does not run and draws nothing. Always inline: GCC's choice for practice_update flips with
+ * small changes elsewhere in the unit (a partial outline of 2,192 bytes, which moved the stats ELF's statics by the
+ * 8 KiB step). Pinning nm_spin_smoke_source as well outlines nm_spin_smoke_step instead (2,060 bytes, both ELFs
+ * past the step): leave the rest to GCC. */
+static inline __attribute__((always_inline)) int nm_spin_smoke_tick(const nm_drive_params_t *p,nm_spin_smoke_t *s,unsigned phase,
         const nm_player_t *source,const nm_player_t *player,unsigned view) {
     if(!nm_spin_smoke_phase(phase)) { s->drawn=0; return 1; }
     const nm_spin_smoke_source_t c=nm_spin_smoke_source(source);

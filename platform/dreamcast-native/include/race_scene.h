@@ -10,6 +10,7 @@
 #include "wrong_way.h"
 #include "contact_clear.h"
 #include "tunnel_light.h"
+#include "drive_board.h"
 /* 235db8 + c, the normal-race light (lighting.h's; race_start_data.h nm_race_light_normal, checked there). */
 static const float nm_race_light_normal_default[3]={-0.45f,-0.89f,-0.45f};
 
@@ -56,6 +57,9 @@ typedef struct {
      * (NM_RACE_STAGE_*); a rejected tick reports it with shared.updating. */
     uint8_t stage;
     uint16_t accel; /* 501054 of the last tick: only the HUD reads it (d480). */
+    /* The drive board's queue the race pushes to (drive_board.h: 1a470, 3a58, 4328), output only; bound by the caller
+     * after the start (the start's memset clears it), NULL: no stream. */
+    nm_drive_board_t *drive;
 } nm_race_scene_t;
 enum { NM_RACE_STAGE_CHECK=0, NM_RACE_STAGE_PHASE, NM_RACE_STAGE_MOVEMENT, NM_RACE_STAGE_INTERACTIONS,
        NM_RACE_STAGE_FINISH_ACTOR, NM_RACE_STAGE_DONE };
@@ -268,6 +272,29 @@ static inline int nm_race_scene_start(nm_race_scene_t *s,const nm_drive_params_t
     return nm_race_scene_start_carried(s,math,contact,road,paths,difficulty,model_variant,marks,mark_capacity,pit,NULL);
 }
 
+/* The race's drive board bytes of one tick (drive_board.h), output only, out of line: one call in the race's tick,
+ * after the start signal. Phase 21's handler 34a8 calls 3a58 (the parameter, 0x07, 0x10), phase 23's 4328 pushes
+ * 0x09 at its start and 43e0 switches the drive task off before the chain; neither pushes anything else, so their
+ * bytes take the same place in the queue here. Then, in phases 20..22, the drive task 504a80 (4e0c -> 1a470) on the
+ * player as the previous iteration left it: the contact side the interactions and 9148 left (+27d), the crash timer
+ * (+c8), the input inhibit and its direction (+d4, +d5), the wall's spin and scrape timers (+ec, +99) and side (+ed),
+ * the front wheels' masks (+1ba, +1bc), the speed index (+18) and the wall-hit wheels of the flags (+0).
+ * TRANSMISSION is 501464 (the tick's curve). */
+static __attribute__((noinline,unused)) void nm_race_scene_drive(nm_drive_board_t *q,const nm_race_scene_t *s,
+        unsigned transmission) {
+    if(s->active_phase==21) nm_drive_board_start(q,s->course,transmission);
+    else if(s->active_phase==23) nm_drive_board_phase(q,23);
+    if(s->active_phase>22) return;
+    const nm_race_car_t *player=s->cars;
+    const nm_player_t *p=&player->car;
+    const nm_drive_board_input_t e={.flags=p->boundary.damage.flags,.speed=(uint32_t)p->speed_index,
+        .mask={p->boundary.ground.mask[0],p->boundary.ground.mask[1]},.crash=p->boundary.damage.inhibit_ticks,
+        .inhibit_word=(int16_t)(uint16_t)((uint8_t)p->input_inhibit|(unsigned)(uint8_t)p->inhibit_direction<<8),
+        .side=(int8_t)player->collision_side,.inhibit=p->input_inhibit,.spin=(int8_t)p->boundary.damage.spin_ticks,
+        .scrape=p->boundary.condition,.scrape_side=p->boundary.damage.side};
+    nm_drive_board_race(q,&e);
+}
+
 /* One fixed gameplay tick; caller supplies latched controls and current visible
  * cells through shared. Return0 stops on error,1 completes a tick,2 requests a
  * unsupported phase entry on a SUBSEQUENT call. A tick selecting the next phase still
@@ -345,6 +372,10 @@ static inline int nm_race_scene_step(nm_race_scene_t *s,const nm_drive_params_t 
      * term ecc8 of the same tick reads the rpm it has just revved. */
     if(s->active_phase==20 && !nm_race_start_signal(math,&s->cars[0].car,s->start_timer,s->start_stage,
            s->cars[0].car.checkpoints.total_laps,input->active.controls.accel,restored,preset)) return 0;
+    /* The drive board (nm_race_scene_drive, output only): the phase handlers' bytes (3a58 in 21, 4328 in 23), then the
+     * drive task 504a80, the chain's entry 10: after the start signal 504900, before the player 504e00 (entry 12), every
+     * iteration of phases 20..22 (3308..3324 switch it on in phase 19's; 43e0 and 41e4 off in 23's and 25's). */
+    if(s->drive) nm_race_scene_drive(s->drive,s,input->active.dynamics.curve);
     s->stage=NM_RACE_STAGE_MOVEMENT;s->accel=(uint16_t)input->active.controls.accel;
     if(!nm_race_movement_step(s->cars,s->count,&s->shared,s->rolling,&s->start_flags,
         math,speed,contact,road,paths,&tick,&s->award,marks,mark_capacity,rows,row_count)) return 0;

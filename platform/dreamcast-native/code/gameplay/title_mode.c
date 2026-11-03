@@ -7,6 +7,7 @@
 #include "audio/music_select.h"
 #include "audio/race_sound_hooks.h"
 #include "game_save.h"
+#include "drive_board.h"
 #include <enDjinn/enj_enDjinn.h>
 #include <stdio.h>
 
@@ -47,6 +48,7 @@ static void title_update(void *unused) {
         }
         if(c->button.START==ENJ_BUTTON_DOWN_THIS_FRAME || c->button.A==ENJ_BUTTON_DOWN_THIS_FRAME) {
             const uint32_t counter=nm_frontend_counter()+ticks+1u;
+            nm_drive_stream_ticks(1); /* the credit's iteration (phase 9), then the game start's */
             if(!nm_title_render_release()) { enj_state_flag_shutdown(NULL);return; }
             nm_practice_attract_abandon();
             if(!nm_select_mode_start(0,counter)) enj_state_flag_shutdown(NULL);
@@ -54,12 +56,15 @@ static void title_update(void *unused) {
         }
         break;
     }
+    const uint32_t ticks_before=ticks;
     while(remainder_us>=NM_PRACTICE_TICK_US) { remainder_us-=NM_PRACTICE_TICK_US;++ticks;++pose_ticks; }
     if(ticks>TITLE_TICKS) ticks=TITLE_TICKS; /* a held frame adds no iteration (the original's loading frames) */
+    nm_drive_stream_ticks(ticks-ticks_before); /* the drive board's sends of these iterations (drive_board.h) */
     if(ticks>=TITLE_TICKS && !nm_practice_attract_loading()) {
         printf("Native title: %u frames, %u late (longest %u us), %u frames past its last tick for the attract's load\n",
             (unsigned)frames,(unsigned)late,(unsigned)longest_us,(unsigned)held);
         nm_frontend_counter_set(nm_frontend_counter()+TITLE_TICKS+1u); /* phases 9 and 10 */
+        nm_drive_stream_ticks(1); /* phase 10's iteration */
         if(!nm_title_render_release() || !nm_attract_mode_start()) enj_state_flag_shutdown(NULL);
         return;
     }
@@ -86,6 +91,8 @@ int nm_attract_mode_start(void) {
     /* Phase 2 (197c): every attract loop, after the boot and after a game; its entry starts the
      * advertisement music, or with ADVERTISE SOUND OFF fades the music (1ca8, include/settings.h). */
     nm_frontend_counter_set(nm_frontend_counter()+1u);
+    /* 197c pushes the drive board's 0x01 at its start; its iteration and the scene start's (phase 3's first) send. */
+    nm_drive_stream_phase(2);nm_drive_stream_ticks(2);
     /* The recording loads here (the first time, or after a race's music) but starts with the cinematic, not under
      * the scene's loading. */
     nm_sound_hold(1);

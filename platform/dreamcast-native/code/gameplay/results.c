@@ -8,6 +8,7 @@
 #include "result_actor_data.h"
 #include "audio/sound.h"
 #include "audio/race_sound_hooks.h"
+#include "drive_board.h"
 #include <stdio.h>
 
 static void result_silent_command(nm_results_t *result,uint32_t command) {
@@ -21,13 +22,16 @@ static void result_silent_command(nm_results_t *result,uint32_t command) {
  * 4110 parks the opponents, 1210c and its event tail 19038 run every results tick
  * (race_scene.h nm_race_scene_results_field). collision_phase 503692 is the
  * frame counter 5010b0 & 3, which keeps counting: race ticks plus the results
- * ticks before this one. The transmission is automatic (curve 0). */
+ * ticks before this one. The transmission is automatic (curve 0). Then the iteration's drive board send (1abbc),
+ * after phase 25's 0x09 (4110 pushes it at its start; nothing else of the iteration pushes, drive_board.h). */
 static int result_field_tick(nm_practice_scene_t *scene,unsigned results_phase) {
     nm_race_intent_output_t out;
     if(!nm_practice_results_tick(scene,results_phase,(scene->race.counter_base+scene->race.ticks+scene->results.ticks-1u)&3u,&out)) return 0;
     for(unsigned i=0;i<out.count;++i) /* Through 19bdc, which the results phases gate off. */
         nm_race_sound_hook_results_gated(&scene->race,&scene->results.commands,&scene->results.command_hash,out.command[i]);
     nm_race_sound_hook_events(&scene->race,scene->race.ticks+scene->results.ticks-1u); /* 19590, gated off */
+    if(results_phase==25) nm_drive_stream_phase(25);
+    nm_drive_stream_ticks(1);
     return 1;
 }
 

@@ -1204,3 +1204,29 @@ ifneq ($(NATIVE_STEER_DEADZONE),12)
 ENJ_BASENAME := $(ENJ_BASENAME)-steerdz$(NATIVE_STEER_DEADZONE)
 endif
 ENJ_CFLAGS += -DNM_STEER_CURVE=$(NATIVE_STEER_CURVE) -DNM_STEER_DEADZONE=$(NATIVE_STEER_DEADZONE)
+# The rumble pack (include/rumble.h, code/drive_board.c): the drive board's command stream (include/drive_board.h, the
+# arcade's bytes, always computed: the queue, the race's update and the scenes' fixed bytes) played on the pack of every
+# controller port that has one, through enDjinn (enj_rumble_effect_set_raw, only when the power changes). The mapping is
+# ours: a pull (0x5-, 0x6-) a timed jolt, 0x4- a continuous level, 0x1-..0x3- the level 0, 0x0- and 0x7- everything off
+# (the inspector's pause too); the output is the larger of the jolt and the level.
+#   NATIVE_RUMBLE (default 1): 0 removes the player (no pack is driven); the stream stays. ELF suffix -norumble when 0.
+#   NATIVE_RUMBLE_JOLT_TICKS (default 9): the ticks a pull's jolt lasts, 1..255 (9: 150 ms). ELF suffix -joltN when
+#     not 9.
+#   NATIVE_RUMBLE_FREQ (default 26): the pack's vibration frequency (purupuru freq, 4..59 on most packs), 1..255. ELF
+#     suffix -rfreqN when not 26.
+NATIVE_RUMBLE ?= 1
+NATIVE_RUMBLE_JOLT_TICKS ?= 9
+NATIVE_RUMBLE_FREQ ?= 26
+$(if $(filter 0 1,$(NATIVE_RUMBLE)),,$(error NATIVE_RUMBLE must be 0 or 1))
+$(if $(shell [ "$(NATIVE_RUMBLE_JOLT_TICKS)" -ge 1 ] 2>/dev/null && [ "$(NATIVE_RUMBLE_JOLT_TICKS)" -le 255 ] && echo ok),,$(error NATIVE_RUMBLE_JOLT_TICKS must be a whole number 1..255))
+$(if $(shell [ "$(NATIVE_RUMBLE_FREQ)" -ge 1 ] 2>/dev/null && [ "$(NATIVE_RUMBLE_FREQ)" -le 255 ] && echo ok),,$(error NATIVE_RUMBLE_FREQ must be a whole number 1..255))
+ifeq ($(NATIVE_RUMBLE),0)
+ENJ_BASENAME := $(ENJ_BASENAME)-norumble
+endif
+ifneq ($(NATIVE_RUMBLE_JOLT_TICKS),9)
+ENJ_BASENAME := $(ENJ_BASENAME)-jolt$(NATIVE_RUMBLE_JOLT_TICKS)
+endif
+ifneq ($(NATIVE_RUMBLE_FREQ),26)
+ENJ_BASENAME := $(ENJ_BASENAME)-rfreq$(NATIVE_RUMBLE_FREQ)
+endif
+ENJ_CFLAGS += -DNM_RUMBLE=$(NATIVE_RUMBLE) -DNM_RUMBLE_JOLT_TICKS=$(NATIVE_RUMBLE_JOLT_TICKS) -DNM_RUMBLE_FREQ=$(NATIVE_RUMBLE_FREQ)

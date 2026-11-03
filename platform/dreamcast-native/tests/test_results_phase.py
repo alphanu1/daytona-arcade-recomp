@@ -35,6 +35,10 @@ static unsigned sound_commands;
 static uint32_t sound_hash=UINT32_C(2166136261);
 static void nm_sound_command(uint32_t command) { ++sound_commands; sound_hash=(sound_hash^command)*UINT32_C(16777619); }
 static void enj_state_flag_shutdown(void *unused) { (void)unused; ++shutdowns; }
+/* drive_board.h, the console's stream (code/drive_board.c): the iterations sent and the phase bytes pushed. */
+static unsigned drive_ticks,drive_phases[32];
+void nm_drive_stream_ticks(unsigned count) { drive_ticks+=count; }
+void nm_drive_stream_phase(unsigned phase) { assert(phase<32);++drive_phases[phase]; }
 /* audio/race_sound_hooks.h (code/audio/race_sound.c): counted in the results' counters, then to sound. */
 static void hook_counted(uint32_t *commands,uint32_t *hash,uint32_t command) {
     ++*commands; *hash=(*hash^command)*UINT32_C(16777619); nm_sound_command(command);
@@ -95,6 +99,7 @@ int main(void) {
         assert(!scene.failed && !releases && !shutdowns);
     }
     assert(scene.race.phase==29 && scene.results.ticks==674 && field_ticks==674);
+    assert(drive_ticks==674 && drive_phases[25]==1); /* 4110's 0x09 once, one send each results iteration */
     assert(scene.race.ticks==0 && scene.state.ticks==0);
     assert(scene.results.playback.clock==449 && glyphs && labels);
     assert(sound_commands && sound_commands==scene.results.commands && sound_hash==scene.results.command_hash);
