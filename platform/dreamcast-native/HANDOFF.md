@@ -292,21 +292,37 @@ program makes them, and played on a Dreamcast rumble pack. No gameplay state is 
   bytes). The stats ELF should print "Native drive board: 114 bytes sent (FNV-1a 09cd968d)" (the harness: "drive
   board: 114 bytes sent (FNV-1a 09cd968d) before phase 29's iteration"; the scripted run ends there).
 - **Size and layout** (make check of the stats and play ELFs: 81 PASS lines, the base's 80 and the rumble check's, and
-  the 5 known FAIL lines; hot layout 160 of 160): .text +1,536 bytes in both (stats 841,732 -> 843,268, play 849,892 ->
-  851,428; the race's out-of-line nm_race_scene_drive 768, the stream's functions about 760 at -Os, enDjinn's rumble
-  calls 96), under the 8 KiB step of "Where the statics sit" (31 October): .rodata, the statics and the image end stay
-  where they were, the heap budget as before (stats 267,688, play 333,224 never taken). Room left before the step:
-  stats 508 bytes, play 540. The first build crossed it: after the unit grew GCC stopped inlining
-  `nm_spin_smoke_tick` into the stats ELF's practice_update (a 2,192-byte partial outline), which moved the statics by
-  8 KiB and failed the stats heap budget (251,304 never taken). It is always_inline now (car_effects.h), as the base
-  inlined it; pinning nm_spin_smoke_source too outlined nm_spin_smoke_step instead (both ELFs past the step), so that
-  stays GCC's. The stats ELF's practice_update is 412 bytes smaller than the base's with nm_spin_smoke_source (84
-  bytes) out of line; play's practice_update +36.
-- **Not done.** No console run (the pack's feel, the frequency and the jolt's length are guesses to try). The test mode:
-  the original reboots after it (0xff, ring cleared, last and counter kept); the native settings screen leaves the
-  queue as it is. A pack plugged in mid-run gets the next change only. The B session reset of a race (native only)
-  starts its race like a cold entry (0x64 on its first tick). The drive board's own meaning of the types and of the 0x0-
-  and 0x7- bytes stays unknown (only its program, EPR-16488, or a cabinet can tell).
+  the 5 known FAIL lines; hot layout 160 of 160 in all five benchmark ELFs): .text +1,792 bytes (stats 841,732 ->
+  843,524, play 849,892 -> 851,684), under the 8 KiB step of "Where the statics sit" (31 October) with 252 bytes to
+  spare in stats, 284 in play, 316 in stats-attract. .rodata, .data and .bss are build/late.recipe's symbol for symbol
+  (from a worktree path of the same length, below): the stream adds no initialised data and no .rodata (the end line's
+  text in .text, `-fno-tree-switch-conversion` for drive_board.o, 3b7c/3b80 as arithmetic), and drive_board.o's .bss
+  goes last in .bss, in the padding before the heap (`@bss_last` in config/hot_layout.tsv, tools/hot_layout.py). The
+  first version (a17b725) moved .data and .bss by 256 bytes: its .rodata grew 252. Once the unit grew, GCC stopped
+  inlining `nm_spin_smoke_tick` into the stats ELF's practice_update (a 2,192-byte partial outline, past the step, the
+  heap budget failed): it is always_inline now (car_effects.h); pinning nm_spin_smoke_source too outlined
+  nm_spin_smoke_step instead, so that stays GCC's.
+- **The checkout's path is in the layout.** model_submission.h's and SH4ZAM's file:line strings (29 in an ELF) hold the
+  worktree's absolute path, so a path two characters longer gives .rodata 116-128 bytes more and moves .data and .bss
+  with it (`dc-native-rumble.wt` against `dc-native-late.wt`; also why the offer branch's ELFs had 17 data symbols 8
+  bytes off, 31 October). Compare layouts only between builds from paths of the same length; a -fmacro-prefix-map would
+  end it but moves every static once.
+- **Which enDjinn.** build/late.recipe and build/offer3.recipe were built against ~/projects/dreamcast/enDJinn, which
+  has been on feature/vmu-save since 25 October (8cccf34 plus runtime FSAA and VMU saves, without 725f8b1's late-frame
+  pacing and hold-frame); the offer branch pins 725f8b1 (scripts/fetch_endjinn.sh there). So the hardware numbers of
+  31 October are of that enDjinn, not of the pin. This branch's final ELFs use the same checkout as the reference.
+- **Hardware, 4 November** (recipes/FULL_COURSE_BENCHMARKS.md): checkpoints 0 differing on all three courses; late
+  frames Beginner 1 (tick 4594), Advanced 0, Expert 1 (tick 3543), attract 0, against the reference's 2, 0, 0, 0. The
+  stream's line as on the host (Beginner 114 bytes, 09cd968d), 86, 102 and 150 pack commands, none refused. Expert's
+  ticks 3543-3545 are the frame late-frames brought just under: the reference ELF ran 0 late the same evening, every
+  build of this branch 1 (the first version twice, the statics fixed, the final). Its race updater mean is 80 us lower
+  and registration 53 us higher (their sum 27 us lower), so the stream costs nothing measurable; the non-hot code after
+  it, placed by GCC, decides that frame. Not pursued: placing code for one marginal frame.
+- **Not done.** The pack's feel: frequency 26 and the 9-tick jolt are guesses to try. The test mode: the original reboots
+  after it (0xff, ring cleared, last and counter kept); the native settings screen leaves the queue as it is. The B
+  session reset of a race (native only) starts its race like a cold entry (0x64 on its first tick: a jolt). The drive
+  board's own meaning of the types and of the 0x0- and 0x7- bytes stays unknown (only its program, EPR-16488, or a
+  cabinet can tell).
 
 ### 31 October: the last late frames (branch late-frames)
 

@@ -32,6 +32,18 @@ the late frames, each with its cause (update, registration, PVR, load) and tick.
 
 ## Results on hardware
 
+4 November 2026, branch rumble: the drive board's command stream and the rumble pack player, a pack connected.
+
+| Benchmark | Frames | Late frames | Checkpoints differing | Registration mean/max |
+| --- | --- | --- | --- | --- |
+| Beginner | 12,474 | 1 (tick 4594, registration 13.4 ms) | 0 of 259 | 7.31 / 14.4 ms |
+| Advanced | 15,402 | 0 | 0 of 320 | 6.33 / 15.0 ms |
+| Expert | 16,655 | 1 (tick 3543, registration 11.9 ms after a 5.4 ms update) | 0 of 345 | 6.50 / 15.3 ms |
+| Attract | 8,264 | 0 | - | 6.93 / 14.5 ms |
+
+The reference ELF (late-frames) ran Expert the same evening: 0 late, 6.44 / 14.2 ms. One Expert render took 16.8 ms
+(tick 2204, not late); the three earlier runs of the branch had none over 16.67 ms.
+
 31 October 2026, branch late-frames: the placed actors' points once a frame, no libcalls in the frame's loops, the slot
 machine's glass without a classification per point.
 
