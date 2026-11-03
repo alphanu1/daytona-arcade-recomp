@@ -269,7 +269,25 @@ program makes them, and played on a Dreamcast rumble pack. No gameplay state is 
   changes, to every port with a pack (`enj_rumble_effect_set_raw`: cont 1, motor 1, fpow, freq NATIVE_RUMBLE_FREQ default
   26, inc 0; power 0 the stop word, motor 1 only); after enDjinn's loop the packs get the stop directly (its update no
   longer runs). NATIVE_RUMBLE=0 removes the player (ELF suffix -norumble), the stream stays. `tests/test_rumble.c`
-  (make check): 281 checks of the player and of the queue's rules.
+  (make check, CTest `native_rumble`): 281 checks of the player and of the queue's rules.
+- **The check** (`tests/test_drive_lockstep.py`; recipe step `drive_lockstep`; CTest `native_drive_lockstep`, cache
+  variable NATIVE_DRIVE_TEST_TRACES, 77 without traces): `m2segment --trace-drive` (`tools/trace_drive.hpp`) writes each
+  byte the original wrote with the 5010b0 of its iteration (taken at the call after 1abbc's entry; a byte outside the
+  sender is "direct": power-on's 0xff of 1bf08); `trace_attract_native` and `trace_race_native` take `--drive` and
+  carry the queue in the chain state (`tests/drive_trace.h`, `tests/game_chain.h`); the test chains them as
+  test_games_lockstep.py does, from power-on through every game, the last game's name entry and the attract after it to
+  the run's last iteration. 20 runs (games-A..J, inputs-damage-A, C, E..H, inputs-manual, inputs-advanced-finish,
+  inputs-expert-finish, inputs-advanced-timeout): every byte the original sent, 3,337 bytes in 28 games and their
+  attracts, at the same iteration, 0 differing; the recipe step runs six of them (games-C, games-J, inputs-damage-E,
+  inputs-manual, inputs-advanced-finish, inputs-expert-finish: 1,366 bytes). The comparison catches what it should: the
+  inhibit compare changed (0x0190 to 0x0191) loses damage-E's 0x27 at 3531; the last byte not carried into games-C's
+  second race adds its grid's 0x27 at 10129. About 6 s for the seven runs' harnesses; each reference run 1-3 minutes
+  and 80-240 MB of race trace (deleted after use).
+- **A cold race entry** (`trace_race_native --drive` without `--frontend`, and an AUTO_START=1 console build: stats,
+  controller): the race starts with an empty queue and the cold start's contact side 0, so tick 0 queues 0x64 where
+  the original (side from the attract's pool) queues 0x27; the rest of the fast race is the original's (114 of 115
+  bytes). The stats ELF should print "Native drive board: 114 bytes sent (FNV-1a 09cd968d)" (the harness: "drive
+  board: 114 bytes sent (FNV-1a 09cd968d) before phase 29's iteration"; the scripted run ends there).
 - **Size and layout** (make check of the stats and play ELFs: 81 PASS lines, the base's 80 and the rumble check's, and
   the 5 known FAIL lines; hot layout 160 of 160): .text +1,536 bytes in both (stats 841,732 -> 843,268, play 849,892 ->
   851,428; the race's out-of-line nm_race_scene_drive 768, the stream's functions about 760 at -Os, enDjinn's rumble

@@ -7,7 +7,7 @@
  * (nm_attract_carry_t).
  *
  * usage: trace_attract_native ASSET_DIR NEW_OUTPUT LOOPS [--course C] [--clock CLOCK_OUT REFERENCE_TRACE [--actors C]]
- *            [--enter STATE] [--credit FRONTEND_TRACE --leave NEW_STATE]
+ *            [--enter STATE] [--credit FRONTEND_TRACE --leave NEW_STATE] [--drive NEW_FILE]
  *   --enter: the loop after a game (trace_race_native --leave, tests/game_chain.h) instead of power-on: its frame
  *   counter, course and pool. --credit: the original's next credit in the front-end trace (the first game start after
  *   the entry, m2segment --trace-frontend) ends the run: the credit's iteration runs as any other, the game start
@@ -21,6 +21,9 @@
  *   --actors C (with --clock): course C alone, its cinematic and V.R. demo, with the props and actors stepped as
  *   code/practice.c steps them (code/props_scene.c) and each actor group's frame and "P" placement as
  *   tests/trace_race_native.c --clock writes them, the demo's ticks from 100000 (test_expert_lockstep.py).
+ *   --drive: the drive board's bytes of every iteration run (tests/drive_trace.h): power-on's 0xff, the attract loop's
+ *   0x01 (197c), the V.R. demo's 0x01 (1e5c) and the credit's 0x03 (2b0c, phase 17); the queue goes on from --enter's
+ *   and into --leave's state (test_drive_lockstep.py).
  * Build with -fno-fast-math -ffp-contract=off (as trace_race_native). ROM-derived headers and packs stay under build/. */
 #undef NDEBUG
 #include "intro_scene.h"
@@ -201,6 +204,15 @@ static void demo_row(FILE *out, long n, uint32_t counter, unsigned phase) {
 
 /* What the scenes leave each other (frontend_pool.h). */
 static nm_entity_pool_t pool;
+/* The drive board's queue (tests/drive_trace.h): from power-on or --enter; its bytes to --drive. */
+static nm_drive_run_t drive;
+static FILE *drive_out;
+static uint32_t drive_first;
+/* The game start after the credit's iteration CREDIT: phases 12 and 17 (2b0c: 0x03), one iteration each. */
+static void drive_game_start(uint32_t credit) {
+    nm_drive_run_to(&drive, drive_out, credit);
+    nm_drive_run_phase(&drive, drive_out, credit + 2u, 17);
+}
 /* --credit: 5010b0 and the active phase of the iteration that saw it; UINT32_MAX: no credit. */
 static uint32_t credit_counter = UINT32_MAX;
 static unsigned credit_phase;
@@ -226,6 +238,8 @@ static int leave(unsigned course) {
     static nm_game_chain_t chain;
     chain.magic = NM_CHAIN_MAGIC; chain.counter = credit_counter; chain.course = course; chain.pool = pool;
     chain.notification = entered_notification;
+    drive_game_start(credit_counter); chain.drive = drive;
+    if (!nm_drive_run_close(drive_out, drive_first, drive.through)) { fputs("cannot write --drive\n", stderr); return 1; }
     if (!nm_chain_write(leave_file, &chain)) { fputs("cannot write --leave (it must be new)\n", stderr); return 1; }
     printf("credit at 5010b0 %" PRIu32 " in phase %u, course %u\n", credit_counter, credit_phase, course);
     return 0;
@@ -249,6 +263,7 @@ static int run_demo(FILE *out, long *n, unsigned course, unsigned count, uint32_
     const char *first = nm_demo_view_start(&demo_race, &demo_view, math, &scenery, &cameras, &pool);
     if (first) { fprintf(stderr, "course %u: demo start camera pass: %s\n", course, first); return 0; }
     demo_row(out, (*n)++, counter, 6);
+    nm_drive_run_phase(&drive, drive_out, counter, 6); /* 1e5c */
     for (unsigned t = 0; t < NM_DEMO_TICKS; ++t) {
         const uint32_t b0 = counter + 1u + t;
         if (!nm_demo_step(&demo_race, &demo, math, &nm_intro_speeds, &contact, &road, paths, &marks, road.profile_count,
@@ -295,6 +310,9 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--enter") && i + 1 < argc) enter_file = argv[++i];
         else if (!strcmp(argv[i], "--credit") && i + 1 < argc) credit_file = argv[++i];
         else if (!strcmp(argv[i], "--leave") && i + 1 < argc) leave_file = argv[++i];
+        else if (!strcmp(argv[i], "--drive") && i + 1 < argc) {
+            if (!(drive_out = nm_drive_run_open(argv[++i]))) { fputs("--drive: cannot create the output (it must be new)\n", stderr); return 2; }
+        }
         else { fprintf(stderr, "unknown argument %s\n", argv[i]); return 2; }
     }
     char path[1024];
@@ -310,7 +328,10 @@ int main(int argc, char **argv) {
         static nm_game_chain_t chain;
         if (!nm_chain_read(enter_file, &chain)) { fputs("--enter: cannot read the state\n", stderr); return 2; }
         pool = chain.pool; counter = chain.counter; course = chain.course; entered_notification = chain.notification;
-    }
+        drive = chain.drive;
+        if (drive.through != counter) { fputs("--enter: the drive board's queue is not the state's last iteration's\n", stderr); return 2; }
+        drive_first = counter + 1u;
+    } else if (drive_out) fputs("D b0=0 byte=ff direct\n", drive_out); /* 1bf08 at the boot, before the main loop */
     if (credit_file && (!leave_file || !credit_find(credit_file, counter))) {
         fputs("--credit needs --leave and a credit in the trace\n", stderr); return 2;
     }
@@ -321,6 +342,7 @@ int main(int argc, char **argv) {
         if (clock_out && clock_course != course && !clock_open(assets, course)) { fprintf(stderr, "course %u: bad actors file\n", course); return 1; }
         if (actors_course != 99) nm_props_world_actors(clock_data, course);
         ++counter; /* phase 2 */
+        nm_drive_run_phase(&drive, drive_out, counter, 2); /* 197c */
         if (!nm_intro_scene_start_attract(&scene, graph->stages, graph->count, math, &road, paths) ||
             !nm_intro_scene_detail(&scene, math, &scenery)) { fprintf(stderr, "course %u: attract start refused\n", course); return 1; }
         scene.object_clock = counter + 1u;
@@ -364,5 +386,7 @@ int main(int argc, char **argv) {
     fclose(out);
     if (clock_out) fclose(clock_out);
     unload();
+    nm_drive_run_to(&drive, drive_out, counter);
+    if (!nm_drive_run_close(drive_out, drive_first, drive.through)) { fputs("cannot write --drive\n", stderr); return 1; }
     return 0;
 }

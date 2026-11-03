@@ -20,6 +20,7 @@
 #include "check_race.hpp"
 #include "trace_race.hpp"
 #include "trace_frontend.hpp"
+#include "trace_drive.hpp"
 #include "export_select.hpp"
 #include "trace_hud.hpp"
 #include "check_visibility.hpp"
@@ -109,6 +110,7 @@ void usage() {
     std::fprintf(stderr, "--trace-attract with --trace-race: rows in the attract loop too (phases 2..11; cars in the cinematic and the V.R. demo, 3..7), for tests/test_attract_lockstep.py.\n");
     std::fprintf(stderr, "--trace-frontend NEW_FILE writes a host-only per-iteration trace of the original's front end (attract, game start, course/transmission select, race entry, game over: phase bytes, select state, its inputs, the frame counter) and the entity pool around the game start; combinable with --trace-race.\n");
     std::fprintf(stderr, "--trace-sound NEW_FILE writes a host-only line per frame in which the original sent sound-board UART bytes (phase, course, timer, raw bytes in hex).\n");
+    std::fprintf(stderr, "--trace-drive NEW_FILE writes a host-only line per byte the original sent to the drive board (the main-loop iteration's 5010b0, the byte; platform/dreamcast-native/tools/trace_drive.hpp); combinable with --trace-race and --trace-frontend.\n");
     std::fprintf(stderr, "--trace-hud NEW_DIR EVERY writes a host-only per-frame trace of what the original race HUD displays (tile words and source variables) and, every EVERY rows (0=never), a snapshot of the 2D state and polygon list.\n");
     std::fprintf(stderr, "--check-native-race checks native active-race timer/finish decisions against original i960 (host only).\n");
     std::fprintf(stderr, "--check-native-drive-live also checks actual player traction/yaw entries and returns during the scenario; requires --check-native-drive.\n");
@@ -172,6 +174,7 @@ int main(int argc, char **argv) {
         std::string result_label_colors, name_label_colors;
         std::string name_exit_output;
         std::string race_trace_output, hud_trace_output, sound_trace_output, frontend_trace_output, clock_trace_output, props_trace_output;
+        std::string drive_trace_output;
         bool clock_trace_expert = false;
         uint64_t hud_snapshot_every = 0;
         bool trace_attract = false;
@@ -195,6 +198,7 @@ int main(int argc, char **argv) {
             }
             else if (!std::strcmp(argv[i], "--trace-sound") && i+1<argc) sound_trace_output=argv[++i];
             else if (!std::strcmp(argv[i], "--trace-frontend") && i+1<argc) frontend_trace_output=argv[++i];
+            else if (!std::strcmp(argv[i], "--trace-drive") && i+1<argc) drive_trace_output=argv[++i];
             else if (!std::strcmp(argv[i], "--trace-hud") && i+2<argc) { hud_trace_output=argv[++i]; hud_snapshot_every=std::strtoull(argv[++i],nullptr,10); }
             else if (!std::strcmp(argv[i], "--export-result-label-colors") && i+1<argc) {
                 result_label_colors=argv[++i];check_native_race=true;
@@ -344,6 +348,16 @@ int main(int argc, char **argv) {
                 throw std::runtime_error("--trace-hud owns the call observer; run it without other observers");
             hud_trace.open(game.board(),hud_trace_output,hud_snapshot_every);
             game.set_call_observer(daytona::native::HudTrace::observe_call,&hud_trace);
+        }
+        // The drive board's bytes (first in the call observer chain: the front-end or race trace's follows).
+        daytona::native::DriveTrace drive_trace;
+        if (!drive_trace_output.empty()) {
+            if (check_live_drive || check_reflection || !hud_trace_output.empty())
+                throw std::runtime_error("--trace-drive shares the call observer only with --trace-race and --trace-frontend");
+            drive_trace.open(game.board(),drive_trace_output);
+            if (frontend_trace.file) { drive_trace.next_call=daytona::native::FrontendTrace::observe_call; drive_trace.next_context=&frontend_trace; }
+            else if (race_trace.file) { drive_trace.next_call=daytona::native::RaceTrace::observe_call; drive_trace.next_context=&race_trace; }
+            game.set_call_observer(daytona::native::DriveTrace::observe_call,&drive_trace);
         }
         // Host-only: the bytes the original wrote to the sound UART (no sound board
         // is built here, so nothing else takes them). Run-derived; keep under build/.
@@ -514,6 +528,7 @@ int main(int argc, char **argv) {
             if (std::fclose(sound_trace) || failed) throw std::runtime_error("cannot write sound trace");
             std::printf("sound_trace rows=%" PRIu64 " bytes=%" PRIu64 " coverage=i960-uart-only\n", sound_rows, sound_bytes);
         }
+        if (drive_trace.file) { game.set_call_observer(nullptr,nullptr); drive_trace.close(); }
         if (hud_trace.file) { game.set_call_observer(nullptr,nullptr); hud_trace.close(); }
         if (frontend_trace.file) { game.set_call_observer(nullptr,nullptr); frontend_trace.close(); }
         if (race_trace.file) {

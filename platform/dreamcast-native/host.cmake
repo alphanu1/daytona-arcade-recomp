@@ -63,6 +63,10 @@ add_test(NAME native_road COMMAND test_native_road)
 add_executable(test_native_drive ${DN}/tests/test_drive.c ${DN}/code/drive.c)
 native_c_target(test_native_drive)
 add_test(NAME native_drive COMMAND test_native_drive)
+# The rumble pack's player and the drive board queue's rules (tests/test_rumble.c; make check too).
+add_executable(test_native_rumble ${DN}/tests/test_rumble.c)
+native_c_target(test_native_rumble)
+add_test(NAME native_rumble COMMAND test_native_rumble)
 add_executable(test_native_contact ${DN}/tests/test_contact.c ${DN}/code/contact.c ${DN}/code/drive.c)
 native_c_target(test_native_contact)
 add_test(NAME native_contact COMMAND test_native_contact)
@@ -255,6 +259,16 @@ if(Python3_FOUND AND NATIVE_SLOT_TEST_INCLUDES AND NATIVE_SLOT_TEST_ASSETS)
                 $<TARGET_FILE:trace_race_native> $<TARGET_FILE:trace_attract_native> ${NATIVE_SLOT_TEST_ASSETS}
                 "${NATIVE_GAMES_TEST_TRACES}")
     set_tests_properties(native_games_lockstep PROPERTIES SKIP_RETURN_CODE 77)
+    # The drive board's command stream (tests/test_drive_lockstep.py, include/drive_board.h): the scenes chained as in
+    # native_games_lockstep, each with --drive, against the bytes the original sent to the drive board in the same runs
+    # (drive-X.trace, frontend-X.trace, race-X.trace: m2segment --trace-frontend --trace-race --trace-attract
+    # --trace-drive of an input script from power-on).
+    set(NATIVE_DRIVE_TEST_TRACES "" CACHE STRING "Dirs with drive-X.trace, frontend-X.trace and race-X.trace (';')")
+    add_test(NAME native_drive_lockstep
+        COMMAND Python3::Interpreter ${DN}/tests/test_drive_lockstep.py
+                $<TARGET_FILE:trace_race_native> $<TARGET_FILE:trace_attract_native> ${NATIVE_SLOT_TEST_ASSETS}
+                "${NATIVE_DRIVE_TEST_TRACES}")
+    set_tests_properties(native_drive_lockstep PROPERTIES SKIP_RETURN_CODE 77)
     # Live-play edge states (tests/test_negative_speed_lockstep.py): a negative speed index (the drag words before
     # and after the tables, NaN included) and the yaw step's cvtri overflow, against the original's runs in
     # NATIVE_NEGSPEED_TEST_TRACES (m2segment --trace-race, the speed written by M2_POKE_ROW/M2_POKE_SPEED).

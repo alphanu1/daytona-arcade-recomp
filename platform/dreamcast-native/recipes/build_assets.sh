@@ -853,6 +853,31 @@ games_lockstep() {
   fresh $d/traces
 }
 step games_lockstep games_lockstep
+DESC_drive_lockstep="drive board lockstep: the bytes the original sends to the drive board (m2segment --trace-drive) against the native stream (include/drive_board.h) of the scenes chained as in games_lockstep, every byte at its iteration, whole games from power-on (inputs/games-C, games-J, inputs-damage-E, inputs-manual, inputs-advanced-finish, inputs-expert-finish)"
+drive_lockstep() {
+  local d=$W/drive x n i=0 runs=(games-C games-J inputs-damage-E inputs-manual inputs-advanced-finish inputs-expert-finish)
+  fresh $d; mkdir -p $d/assets $d/traces
+  cc -std=c11 -O2 -fno-fast-math -ffp-contract=off -I$DN/include -I$W/intro -I$HD/intent-data -I$HD/race-start-data \
+     -I$HD/record-data -I$HD/podium-data $DN/tests/trace_race_native.c $DN/code/{drive,contact,road,path,visibility,props,props_scene,expert_actors}.c -lm \
+     -o $d/trace_race_native
+  cc -std=c11 -O2 -fno-fast-math -ffp-contract=off -I$DN/include -I$W/intro -I$HD/intent-data -I$HD/race-start-data \
+     -I$HD/record-data -I$HD/podium-data $DN/tests/trace_attract_native.c $DN/code/{drive,contact,road,path,visibility,props,props_scene,expert_actors}.c -lm \
+     -o $d/trace_attract_native
+  ln -s $P/drive.dnd $P/course0.dn[cr] $P/course0-route*.dnp $P/scenery.dnv $P2/course2.dn[crv] $P2/course2-route*.dnp \
+     $P1/course1.dn[crv] $P1/course1-route*.dnp $d/assets/
+  for x in $runs; do
+    n=$(awk '$1=="frames" { print $2; exit }' $RC/inputs/$x.txt)
+    $M $R $n --inputs $RC/inputs/$x.txt --trace-frontend $d/traces/frontend-$x.trace --trace-race $d/traces/race-$x.trace \
+       --trace-attract --trace-drive $d/traces/drive-$x.trace > $d/traces/$x.log 2>&1 &
+    (( (++i)%JOBS )) || wait
+  done
+  wait
+  for x in $runs; do [[ -s $d/traces/drive-$x.trace ]] || { print -r -- "no reference of $x"; return 1; }; done
+  python3 -I $DN/tests/test_drive_lockstep.py $d/trace_race_native $d/trace_attract_native $d/assets $d/traces > $d/compare.txt || { tail -20 $d/compare.txt; return 1; }
+  tail -7 $d/compare.txt
+  fresh $d/traces
+}
+step drive_lockstep drive_lockstep
 DESC_props_slow="2230ac's slow knock: runs that drive into a prop of Advanced and of Expert at speed index 54 (m2segment --trace-props), tests/test_props.c on every tick, draw and hit sound"
 props_slow() {
   local d=$W/props-slow

@@ -3,10 +3,12 @@
  *   trace_race_native ... --frontend TRACE --leave A             the first game, through the results
  *   trace_attract_native ... --enter A --credit TRACE --leave B  the attract after it, to the next credit
  *   trace_race_native ... --enter B --frontend TRACE             the next game: its select and its race
+ * and the drive board's queue with them (--drive, tests/drive_trace.h).
  * The file is a native struct: only for the harness binaries of one build, ROM-derived, under build/. */
 #ifndef DAYTONA_NATIVE_GAME_CHAIN_H
 #define DAYTONA_NATIVE_GAME_CHAIN_H
 #include "frontend_pool.h"
+#include "drive_trace.h"
 #include <stdio.h>
 
 typedef struct {
@@ -15,6 +17,7 @@ typedef struct {
     uint32_t course;  /* 501460 */
     uint32_t notification; /* 501398 of the game's record: the trace's notify= until the next game's phase 25 */
     nm_entity_pool_t pool;
+    nm_drive_run_t drive; /* the drive board's queue (work RAM, never reset), sent through the scene's last iteration */
 } nm_game_chain_t;
 enum { NM_CHAIN_MAGIC=0x434e4847 };
 
