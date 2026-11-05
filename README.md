@@ -87,7 +87,10 @@ per basic block. It loses precision (interrupts come a few instructions later
 than in MAME, so MAME lockstep and trace comparisons need the default output)
 but runs faster, above all on the PS Vita (`scripts/build_vita.py
 --fast-inaccuracy` makes the Vita's own code that way, see
-[platform/vita/README.md](platform/vita/README.md)). Revision A is `build-daytona/daytona`, with its own
+[platform/vita/README.md](platform/vita/README.md)). Start the game with the launcher,
+`build/daytona`: choose either ROM set there and it opens that game. The two
+games are beside it, `build/daytona-93` (Deluxe '93) and `build/daytona-rev`
+(Revision A, whose code is built in `build-daytona/`), each with its own
 settings and saves. Its factory settings are a linked twin cabinet, which
 waits for a second cabinet: set a single cabinet once in test mode (F2).
 

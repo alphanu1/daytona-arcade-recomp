@@ -271,7 +271,10 @@ def main():
             sys.exit(ROM_REJECTED.format(set=romset))
         if r.returncode:
             sys.exit(BUILD_FAILED)
-        exe = next((p for p in (os.path.join(set_build, "daytona" + EXE), os.path.join(set_build, "Release", "daytona" + EXE))
+        # One launcher for both games: build/daytona starts daytona-93 (Deluxe '93) or daytona-rev
+        # (Revision A), both beside it in the main build folder (CMake puts them there).
+        name = ("daytona-93" if romset == "daytona93" else "daytona-rev") + EXE
+        exe = next((p for d in (build, set_build) for p in (os.path.join(d, name), os.path.join(d, "Release", name))
                     if os.path.exists(p)), None)
         if exe:
             games.append((label, exe))
@@ -283,7 +286,13 @@ def main():
     run(["ctest", "--test-dir", build, "-C", "Release", "--output-on-failure"], check=False)
     say("Done")
     for label, exe in games:
-        print(f"\n{label} is built. Start it with:\n\n    " + os.path.relpath(exe, ROOT))
+        print(f"\n{label} is built ({os.path.relpath(exe, ROOT)}).")
+    if games:
+        launcher = next((p for p in (os.path.join(build, "daytona" + EXE), os.path.join(build, "Release", "daytona" + EXE))
+                         if os.path.exists(p)), None)
+        if launcher:
+            print("\nStart it with the launcher (choose your ROM set there; it opens that game):\n\n    "
+                  + os.path.relpath(launcher, ROOT))
     if games:
         print()
 

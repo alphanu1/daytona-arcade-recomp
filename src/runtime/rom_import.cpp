@@ -3,6 +3,7 @@
 #include "runtime/archive.h"
 #include "runtime/zip.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <iterator>
@@ -111,15 +112,13 @@ std::string hex8(uint32_t v) {
 
 } // namespace
 
-std::vector<RomCheck> check_rom_set(const std::string &zip_path) {
+static std::vector<RomCheck> check_set(const Archive &z, const Set &set) { // every file of one set
     std::vector<RomCheck> out;
-    const auto z = open_archive(zip_path);
-    const Set &set = this_set();
     for (const Load &l : std::span(set.loads, set.count)) {
         RomCheck c;
         c.file = l.file;
-        const auto it = z->entries().find(l.file);
-        if (it == z->entries().end()) c.problem = "missing";
+        const auto it = z.entries().find(l.file);
+        if (it == z.entries().end()) c.problem = "missing";
         else if (it->second.size != l.size) c.problem = "wrong size";
         else if (it->second.has_crc && it->second.crc != l.crc)
             c.problem = "wrong CRC " + hex8(it->second.crc) + " (expected " + hex8(l.crc) + ")";
@@ -127,6 +126,21 @@ std::vector<RomCheck> check_rom_set(const std::string &zip_path) {
         out.push_back(c);
     }
     return out;
+}
+
+std::vector<RomCheck> check_rom_set(const std::string &zip_path) { return check_set(*open_archive(zip_path), this_set()); }
+
+std::vector<std::string> rom_sets_in(const std::string &zip_path) {
+    const auto z = open_archive(zip_path);
+    std::vector<std::string> sets;
+    auto full = [&](const Set &s) {
+        const auto checks = check_set(*z, s);
+        return std::all_of(checks.begin(), checks.end(), [](const RomCheck &c) { return c.ok; });
+    };
+    if (full(this_set())) sets.push_back(this_set().name);
+    for (const Set &s : kSets)
+        if (std::strcmp(s.name, M2_ROMSET) && full(s)) sets.push_back(s.name);
+    return sets;
 }
 
 M2Board::Images import_rom_set(const std::string &zip_path) {

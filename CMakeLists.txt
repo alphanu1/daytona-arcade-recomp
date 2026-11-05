@@ -257,6 +257,11 @@ if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN} AND EXISTS ${SND_GEN})
 
     # The game in a window (needs the app objects below).
     if(TARGET daytona_app)
+        # The game's CMake target: daytona on mobile (Gradle and Xcode build
+        # it by that name); daytona_game on the desktop, where daytona is the
+        # launcher's file, which a target of the same name would shadow in
+        # Ninja (--target daytona built the launcher, not the game).
+        set(M2_GAME daytona)
         if(ANDROID)
             # SDLActivity loads this as libmain.so and calls SDL_main from it.
             add_library(daytona SHARED $<TARGET_OBJECTS:daytona_app> ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})
@@ -274,11 +279,35 @@ if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN} AND EXISTS ${SND_GEN})
                 XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "15.0"
                 XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO")
         else()
-            add_executable(daytona WIN32 $<TARGET_OBJECTS:daytona_app> ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})
+            set(M2_GAME daytona_game)
+            add_executable(daytona_game WIN32 $<TARGET_OBJECTS:daytona_app> ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})
+            # One launcher for both games: build/daytona starts the right one
+            # (src/app/launcher_main.cpp); the games are daytona-93 and
+            # daytona-rev, in one folder, each finding the other
+            # (app::game_for_set).
+            set_target_properties(daytona_game PROPERTIES OUTPUT_NAME daytona-93)
+            if(M2_ROMSET STREQUAL "daytona")
+                # Revision A's goes in the Deluxe '93 build's folder: setup's
+                # Revision A build is that folder's name with -daytona; else it
+                # stays in its own folder.
+                set(M2_GAME_DIR "" CACHE PATH "Where the Revision A game goes (empty: beside Deluxe '93's, as setup lays them out)")
+                set(_m2_game_dir "${M2_GAME_DIR}")
+                if(NOT _m2_game_dir AND CMAKE_BINARY_DIR MATCHES "^(.*)-daytona$")
+                    set(_m2_main_build "${CMAKE_MATCH_1}") # (MATCHES sets it; the same if() would expand it first)
+                    if(EXISTS "${_m2_main_build}/CMakeCache.txt")
+                        set(_m2_game_dir "${_m2_main_build}")
+                    endif()
+                endif()
+                set_target_properties(daytona_game PROPERTIES OUTPUT_NAME daytona-rev)
+                if(_m2_game_dir)
+                    set_target_properties(daytona_game PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${_m2_game_dir}")
+                    message(STATUS "Revision A's game: ${_m2_game_dir}/daytona-rev, beside the launcher")
+                endif()
+            endif()
         endif()
-        target_link_libraries(daytona PRIVATE runtime imgui gpurender ${M2_SDL_TARGET})
+        target_link_libraries(${M2_GAME} PRIVATE runtime imgui gpurender ${M2_SDL_TARGET})
         if(WIN32)
-            target_link_libraries(daytona PRIVATE ws2_32) # link play's sockets
+            target_link_libraries(${M2_GAME} PRIVATE ws2_32) # link play's sockets
         endif()
         # Headless frames through the hardware renderer, to compare with m2run's.
         add_executable(m2gpushot tools/m2gpushot/main.cpp ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})
@@ -289,6 +318,16 @@ if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN} AND EXISTS ${SND_GEN})
     if(NOT MSVC)
         set_source_files_properties(${GEN_SOURCES} ${TGP_GEN} ${SND_GEN} PROPERTIES COMPILE_OPTIONS "-Wno-unused-label")
     endif()
+endif()
+
+# The launcher, build/daytona: the one file to start, built in the main
+# (Deluxe '93) folder with or without either game; it starts daytona-93 or
+# daytona-rev beside it (src/app/launcher_main.cpp). Desktop only: mobile and
+# consoles are one game per app.
+if(TARGET daytona_app AND NOT ANDROID AND NOT IOS AND M2_ROMSET STREQUAL "daytona93")
+    add_executable(daytona_launcher WIN32 src/app/launcher_main.cpp)
+    set_target_properties(daytona_launcher PROPERTIES OUTPUT_NAME daytona)
+    target_link_libraries(daytona_launcher PRIVATE runtime ${M2_SDL_TARGET})
 endif()
 
 # The TGP recompiler and, when it has been run, the lockstep check of its

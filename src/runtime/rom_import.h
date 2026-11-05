@@ -35,6 +35,11 @@ M2Board::Images import_rom_set(const std::string &zip_path);
 // The MAME name of the set this build was recompiled from.
 const char *rom_set_name();
 
+// The MAME names of the sets an archive holds in full (every file there, at
+// its size and CRC), this build's own first: an archive can hold both (MAME's
+// merged daytona). For the launcher, whose other set is the other game's.
+std::vector<std::string> rom_sets_in(const std::string &zip_path);
+
 // The TGP program the i960 uploads at boot, cut from main_data (CRC-checked).
 std::vector<uint8_t> tgp_program(const M2Board::Images &img);
 

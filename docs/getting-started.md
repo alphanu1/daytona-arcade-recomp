@@ -103,11 +103,13 @@ Setup prints each step. It is done when you see:
 
         build/daytona
 
-With Revision A in `roms/` too, it is built as well, in its own folder:
+With Revision A in `roms/` too, it is built as well, beside the first:
 
-    Daytona USA Revision A, 1994 (daytona) is built. Start it with:
+    Daytona USA Revision A, 1994 (daytona) is built (build/daytona-rev).
 
-        build-daytona/daytona
+    Start it with the launcher (choose your ROM set there; it opens that game):
+
+        build/daytona
 
 If it stops before that, see [Troubleshooting](#troubleshooting).
 
@@ -129,8 +131,13 @@ have the window wait until the game closes, use
 shortcut, the game writes its messages to `daytona.log` in its settings
 folder (see Starting again from scratch for where that is).
 
-Revision A is `build-daytona/daytona` (`build-daytona\Release\daytona.exe`
-on Windows); it keeps its own settings and saves.
+`build/daytona` (`build\Release\daytona.exe` on Windows) is the launcher for
+both games: the one file to start. Beside it are the games themselves,
+`daytona-93` (Deluxe '93) and `daytona-rev` (Revision A), each with its own
+settings and saves. Choose either set's ROM in the launcher: for the other
+set, **Start Revision A (1994)** (or **Start Deluxe '93**) opens that game
+with it. If only one set is built, the launcher says so when you choose the
+other.
 
 A launcher opens first. On the **Game** tab, click **Browse...**, choose
 the same `roms/daytona93.zip` (`roms/daytona.zip` for Revision A), and
@@ -219,7 +226,7 @@ MASTER on one and SLAVE on the others, and a different **CAR NUMBER** on each
 (the factory setting is MASTER, car 1). Reset. The Game tab shows the link's
 state ("linked: cabinet 1 of 2"). The attract screen says 通信システム
 (communication system) when the link is up. To try it on one computer, start
-a second copy with `build-daytona/daytona --profile 2` (its own settings and
+a second copy with `build/daytona --profile 2` (its own settings and
 saves), with port 15113 and next `127.0.0.1:15112`, and the first with port
 15112 and next `127.0.0.1:15113`. A firewall may ask to allow the
 connections.
@@ -324,7 +331,8 @@ Windows" and "MSBuild support for LLVM (clang-cl) toolset". Then run
 **Start is greyed out in the launcher**
 The line under the ROM path says why. If it says files are missing or
 wrong, the file you chose is not the set this build is for (`daytona93`
-for `build/daytona`, `daytona` for `build-daytona/daytona`). If it cannot open the
+for Deluxe '93, `daytona` for Revision A); with both built, the button
+offers the other game instead. If it cannot open the
 file, click **Browse...** and choose it again.
 
 **The game closes straight away, mentioning `SDL_CreateGPUDevice`**

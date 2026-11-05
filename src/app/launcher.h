@@ -23,17 +23,30 @@ namespace app {
 // the display's closest exclusive mode, or borderless at the desktop's ("").
 void apply_fullscreen_mode(SDL_Window *window, const std::string &mode);
 
+// One launcher for both games: each ROM set is its own build, and setup puts
+// both executables in one folder with the launcher (daytona): daytona-93
+// (Deluxe '93, daytona93) and daytona-rev (Revision A, 1994, daytona). The
+// other set's executable beside this one, or "" where there is none: not
+// built, or a one-set app (mobile, consoles).
+std::string game_for_set(const std::string &set);
+const char *set_label(const std::string &set); // "Deluxe '93", "Revision A (1994)"
+
 class Launcher {
 public:
     Launcher(Config &cfg, SDL_Window *window);
 
-    enum Result { Stay, StartGame, Resume, Reset, Quit };
+    enum Result { Stay, StartGame, Resume, Reset, Quit, OtherGame }; // OtherGame: start the other set's game
     // Returns true if the event was consumed (binding capture).
     bool handle_event(const SDL_Event &e);
     // Draw the interface (between ImGui::NewFrame and ImGui::Render).
     Result draw(bool game_running, const Devices &devices);
 
     bool rom_ok() const { return rom_ok_; }
+    // The chosen archive is the other set, and its game is built: start that
+    // (other_game()) with this archive (other_rom()).
+    bool other_game_ready() const { return !rom_ok_ && !other_game_.empty(); }
+    const std::string &other_game() const { return other_game_; }
+    const std::string &other_rom() const { return other_rom_; }
     void set_error(const std::string &e) { error_ = e; }
     void set_ffb_device(const char *kind) { ffb_device_ = kind; } // what force feedback is playing on
     void set_link_status(const std::string &s) { link_status_ = s; } // link play, for the Game tab
@@ -49,6 +62,7 @@ private:
     std::vector<rt::RomCheck> checks_;
     bool rom_ok_ = false;
     std::string rom_message_, error_;
+    std::string other_set_, other_game_, other_rom_; // the archive is the other set: its name, game, path
     const char *ffb_device_ = "none";
     std::string link_status_ = "off";
     std::string pacing_status_;

@@ -32,6 +32,26 @@ std::string mode_label(const SDL_DisplayMode &m) {
 
 } // namespace
 
+const char *set_label(const std::string &set) { return set == "daytona" ? "Revision A (1994)" : "Deluxe '93"; }
+
+std::string game_for_set(const std::string &set) {
+#if defined(M2_MOBILE) || defined(SDL_PLATFORM_ANDROID) || defined(SDL_PLATFORM_IOS)
+    (void)set;
+    return ""; // one set per app
+#else
+    const char *base = SDL_GetBasePath(); // this executable's folder, with its separator
+    if (!base) return "";
+#ifdef _WIN32
+    const char *ext = ".exe";
+#else
+    const char *ext = "";
+#endif
+    const std::string path = std::string(base) + (set == "daytona" ? "daytona-rev" : "daytona-93") + ext;
+    std::error_code ec;
+    return std::filesystem::is_regular_file(path, ec) ? path : "";
+#endif
+}
+
 void apply_fullscreen_mode(SDL_Window *window, const std::string &key) {
     int w = 0, h = 0;
     float hz = 0, density = 1;
@@ -65,6 +85,7 @@ Launcher::Launcher(Config &cfg, SDL_Window *window) : cfg_(cfg), window_(window)
 void Launcher::check_rom() {
     checks_.clear();
     rom_ok_ = false;
+    other_set_.clear(), other_game_.clear(), other_rom_.clear();
     if (cfg_.rom_path.empty()) {
         rom_message_ = "Choose your " M2_ROMSET " ROM set (.zip or .7z).";
         return;
@@ -95,6 +116,24 @@ void Launcher::check_rom() {
         rom_message_ = rom_ok_ ? "All " + std::to_string(good) + " files verified."
                                : std::to_string(int(checks_.size()) - good) + " of " + std::to_string(checks_.size()) +
                                      " files missing or wrong: this is not the " M2_ROMSET " set.";
+        if (!verified) { // the other set: its own game, if it is built beside this one
+            const auto sets = rt::rom_sets_in(selected.path());
+            if (!sets.empty() && sets.front() != M2_ROMSET) {
+                other_set_ = sets.front();
+                other_game_ = game_for_set(other_set_);
+                std::error_code ec;
+                const auto abs = std::filesystem::absolute(selected.path(), ec);
+                other_rom_ = ec ? selected.path() : abs.lexically_normal().string();
+                const std::string what = std::string("This is the ") + set_label(other_set_) + " set (" + other_set_ + ")";
+                rom_message_ = !other_game_.empty() ? what + ": Start opens that game."
+#if defined(M2_MOBILE) || defined(SDL_PLATFORM_ANDROID) || defined(SDL_PLATFORM_IOS)
+                                                    : what + ", which this app does not play.";
+#else
+                                                    : what + ", which isn't built yet: put it in roms/ as " + other_set_ +
+                                                          ".zip (or .7z) and run setup again.";
+#endif
+            }
+        }
     } catch (const std::exception &e) {
         rom_message_ = e.what();
     }
@@ -271,11 +310,13 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
                 cfg_.save();
                 check_rom();
             }
-            ImGui::TextColored(rom_ok_ ? ImVec4(0.4f, 0.9f, 0.4f, 1) : ImVec4(1, 0.6f, 0.3f, 1), "%s", rom_message_.c_str());
+            // The other game's set is good news too (Start opens that game): green, not the problem colour.
+            const bool good = rom_ok_ || other_game_ready();
+            ImGui::TextColored(good ? ImVec4(0.4f, 0.9f, 0.4f, 1) : ImVec4(1, 0.6f, 0.3f, 1), "%s", rom_message_.c_str());
             if (!error_.empty()) {
                 ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "%s", error_.c_str());
             }
-            if (!checks_.empty() && ImGui::TreeNode("Files")) {
+            if (!checks_.empty() && !other_game_ready() && ImGui::TreeNode("Files")) { // (not this game's set: no list)
                 if (ImGui::BeginTable("files", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
                     for (const auto &c : checks_) {
                         ImGui::TableNextRow();
@@ -490,15 +531,20 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
             ImGui::SetItemTooltip("Tick, then Start or Resume: once the game is running the Test button is\n"
                                   "held for 3 seconds, which opens the test menu, and this clears itself.\n"
                                   "F2, or any button bound to Test, still works too.");
-            ImGui::BeginDisabled(!rom_ok_);
-            if (game_running) {
-                if (ImGui::Button("Resume", ImVec2(140, 40))) result = Resume;
-                ImGui::SameLine();
-                if (ImGui::Button("Reset", ImVec2(140, 40))) result = Reset;
-            } else if (ImGui::Button("Start", ImVec2(140, 40))) {
-                result = StartGame;
+            if (other_game_ready()) { // the other set's archive: its own game takes over
+                const std::string start = std::string("Start ") + set_label(other_set_);
+                if (ImGui::Button(start.c_str(), ImVec2(290, 40))) result = OtherGame;
+            } else {
+                ImGui::BeginDisabled(!rom_ok_);
+                if (game_running) {
+                    if (ImGui::Button("Resume", ImVec2(140, 40))) result = Resume;
+                    ImGui::SameLine();
+                    if (ImGui::Button("Reset", ImVec2(140, 40))) result = Reset;
+                } else if (ImGui::Button("Start", ImVec2(140, 40))) {
+                    result = StartGame;
+                }
+                ImGui::EndDisabled();
             }
-            ImGui::EndDisabled();
             ImGui::SameLine();
             if (ImGui::Button("Quit", ImVec2(140, 40))) result = Quit;
             ImGui::EndTabItem();

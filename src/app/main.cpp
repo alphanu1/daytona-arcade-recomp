@@ -368,11 +368,17 @@ int main(int argc, char **argv) {
     };
 
     bool in_launcher = true, running = true, have_frame = false, new_frame = false;
+    bool hand_over = false; // the archive is the other ROM set: its game starts once this one has shut down
+    bool hand_over_start = false; // ... and goes straight into the race (Start pressed, or --autostart given)
     bool cursor_hidden = false; // the launcher's "Hide mouse cursor in game", in effect now
     int reported_hardware = -1; // the renderer last reported (-1: none yet)
     // Skip launcher (saved) or --autostart: straight into the game when the ROM
     // set checks out; otherwise the launcher shows, with the reason.
     if ((autostart || cfg.skip_launcher) && launcher.rom_ok() && start_game()) in_launcher = false;
+    else if ((autostart || cfg.skip_launcher) && launcher.other_game_ready())
+        // The other set's archive (--rom, or the last one chosen): its game, which
+        // follows its own Skip launcher unless --autostart was asked for.
+        hand_over = true, hand_over_start = autostart, running = false;
     auto sync_native_audio = [&] {
         if (native_fault) in_launcher = true;
         if (!native_audio.available()) return;
@@ -647,6 +653,7 @@ int main(int argc, char **argv) {
                 break;
             case app::Launcher::Resume: in_launcher = false; break;
             case app::Launcher::Quit: running = false; break;
+            case app::Launcher::OtherGame: hand_over = hand_over_start = true, running = false; break;
             default: break;
             }
 #ifdef M2_MOBILE
@@ -722,6 +729,26 @@ int main(int argc, char **argv) {
     SDL_DestroyWindow(window);
     ffb.close();
     devices.close_all();
+    if (hand_over) {
+        // One launcher for both games: start the other set's executable with
+        // this archive, and this one's other options (--profile, --gpu, ...).
+        std::vector<std::string> args{launcher.other_game()};
+        for (int i = 1; i < argc; i++) {
+            if (!std::strcmp(argv[i], "--rom") && i + 1 < argc) { ++i; continue; }
+            if (!std::strcmp(argv[i], "--autostart")) continue;
+            args.push_back(argv[i]);
+        }
+        args.insert(args.end(), {"--rom", launcher.other_rom()});
+        if (hand_over_start) args.push_back("--autostart");
+        std::vector<const char *> c_args;
+        for (const auto &a : args) c_args.push_back(a.c_str());
+        c_args.push_back(nullptr);
+        std::printf("daytona: %s is the other ROM set: starting %s\n", launcher.other_rom().c_str(),
+                    launcher.other_game().c_str());
+        std::fflush(stdout);
+        if (SDL_Process *p = SDL_CreateProcess(c_args.data(), false)) SDL_DestroyProcess(p); // it carries on alone
+        else std::fprintf(stderr, "daytona: could not start %s (%s)\n", launcher.other_game().c_str(), SDL_GetError());
+    }
     SDL_Quit();
     return 0;
 }

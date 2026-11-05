@@ -720,6 +720,35 @@ Changes are local on psvita-native-frontend; no push to main or PSP.
 
 ## Current state
 
+**One launcher for both games.** Each ROM set is still its own build (the
+generated code of both shares names: gen::chunk_*, rt::tgpgen, sndgen), but
+the games land in one folder with a launcher: build/daytona
+(src/app/launcher_main.cpp, target daytona_launcher, built in the main
+Deluxe '93 folder with or without a game) starts daytona-93 or daytona-rev
+beside it: with --rom, the game for the set the archive holds; else
+daytona-93, or daytona-rev if only that is built; execv on Linux and macOS,
+SDL_CreateProcess on Windows. CMake names the games daytona-93 and
+daytona-rev (target daytona_game on the desktop: a target named daytona
+would shadow the launcher's file in Ninja, and --target daytona built only
+the launcher; mobile keeps daytona, as Gradle and Xcode use it) and, for a build folder named <main>-daytona with <main>
+configured (setup's layout), puts Revision A's in <main> (M2_GAME_DIR
+overrides). rt::rom_sets_in(path): the sets an archive holds in full, this
+build's own first (MAME's merged daytona holds both: then it stays). A game's
+launcher, given the other set's archive, says so in green and offers "Start
+Revision A (1994)" / "Start Deluxe '93" if app::game_for_set finds that game
+beside it (else: not built yet; mobile and consoles: never); then, or with
+--rom/--autostart or Skip launcher on the other set's archive, it shuts down
+as usual (saves written, window closed) and starts the other with its own
+arguments minus --rom/--autostart, plus --rom <archive>, and --autostart only
+for Start or a given --autostart (SDL_CreateProcess): a start-up hand-over
+from Skip launcher leaves the other game to its own Skip launcher (it had
+carried Deluxe '93's into Revision A, which then skipped with its own off). Checked on Linux: a fresh setup puts the games in one
+folder and nothing in <main>-daytona; the launcher opens the right game for
+each ROM, and Revision A's alone when Deluxe '93's is missing; each game hands
+over to the other given the other's ROM; CTest and setup's tests pass. Not
+tried on Windows (build/Release/daytona.exe, daytona-93.exe, daytona-rev.exe
+expected) or macOS.
+
 **Force feedback: centring driver override, Linux (issue #16).** A PS2
 Driving Force on Linux feels crashes but no centring on bends: the kernel's
 Logitech driver offers, as far as known (hid-lg4ff from memory, not checked
