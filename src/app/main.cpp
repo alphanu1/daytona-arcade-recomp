@@ -520,6 +520,13 @@ int main(int argc, char **argv) {
             rt::GameLoop::set_draw_distance(cfg.draw_distance);
             game->set_draw_budget(cfg.draw_budget);
             for (int frames = pacer.frames(now); frames > 0; --frames) {
+                cfg.controls.slow_steer = game->menu_screen();
+                { // a new menu screen: these two words of the game's memory change once, as circuit select hands over to transmission select
+                    static uint32_t prev_a = 0, prev_b = 0;
+                    const uint32_t wa = game->board().read_dword(0x504394), wb = game->board().read_dword(0x5043b8);
+                    cfg.controls.menu_event = wa != prev_a || wb != prev_b;
+                    prev_a = wa, prev_b = wb;
+                }
                 rt::Inputs inputs = cfg.controls.sample(SDL_GetKeyboardState(nullptr), devices);
                 if (cfg.hold_test != test_hold.armed()) cfg.hold_test ? test_hold.arm() : test_hold.cancel();
                 if (test_hold.apply(game->frames(), inputs.in0)) cfg.hold_test = false; // held: the box clears
