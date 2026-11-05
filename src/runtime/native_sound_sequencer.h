@@ -24,6 +24,13 @@ public:
         double source_rate_hz = 0;
         float gain = 0, pan = 0;
         bool music = false; // a music channel's (0-9, 15), else an effect's: the launcher's two volumes
+#ifdef M2_DC_NATIVE_HOST
+        // The same voice as the driver's MultiPCM register values: pitch word
+        // (octave/FNS, bit 0 the sample's bit 8), total level 0..127 and pan
+        // nibble. For offline tools that author chip-level streams.
+        uint16_t rate_code = 0;
+        uint8_t level = 0, pan_code = 0;
+#endif
     };
     struct Stats {
         uint64_t input_bytes = 0, messages = 0, sequence_events = 0;
@@ -43,6 +50,10 @@ public:
     uint32_t output_rate() const { return output_rate_; }
     const Stats &stats() const { return stats_; }
     bool failed() const { return stats_.invalid_data != 0 || stats_.event_limit_hits != 0; }
+#ifdef M2_DC_NATIVE_HOST
+    // No music or effect sequence running (voices may still sound).
+    bool tracks_idle() const;
+#endif
 
 private:
     struct Channel {

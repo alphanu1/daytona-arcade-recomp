@@ -1,0 +1,47 @@
+{
+ "reference_focus": 280,
+ "expected_focus": 210,
+ "rules": [
+  {
+   "name": "trees",
+   "textures": [
+    3600,
+    2600
+   ],
+   "levels": [
+    {
+     "spec": "near-th2.json"
+    },
+    {
+     "spec": "far-far1.json"
+    }
+   ],
+   "switch": [
+    {
+     "pixels": 50,
+     "of": "height"
+    }
+   ]
+  },
+  {
+   "name": "fence",
+   "checker": true,
+   "levels": [
+    "source",
+    "none"
+   ],
+   "switch": [
+    {
+     "texel_pixels": 0.2,
+     "reach": "radius"
+    }
+   ]
+  }
+ ],
+ "cores": {
+  "spec": "near-th2.json",
+  "textures": [
+   3924
+  ]
+ }
+}

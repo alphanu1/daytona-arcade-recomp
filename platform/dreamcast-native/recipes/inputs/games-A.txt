@@ -1,0 +1,8 @@
+# Games A: first game, credit in the title of the first loop (coins 3000-3089); accelerator from 3200 on: both selects
+# confirmed or timed out, the race on Beginner to frame 7500. Reference: m2segment ROM N --inputs games-X.txt
+# --trace-frontend frontend-X.trace --trace-race race-X.trace --trace-attract (tests/test_games_lockstep.py).
+frames 7500
+3000-3009 coin=1
+3040-3049 coin=1
+3080-3089 coin=1
+3200-7499 accel=0xe0

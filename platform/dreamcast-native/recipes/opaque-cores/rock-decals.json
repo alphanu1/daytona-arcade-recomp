@@ -1,0 +1,6 @@
+{
+ "textures": {
+  "2056": {"kind": "overlay", "hole": 0, "close": 0, "cores": 4, "vertices": 8, "least": 0.01, "fringe": "pieces"},
+  "6424": {"kind": "overlay", "hole": 0, "close": 0, "cores": 4, "vertices": 8, "least": 0.01, "fringe": "hull"}
+ }
+}

@@ -1,0 +1,275 @@
+{
+ "reference_focus": 280,
+ "expected_focus": 210,
+ "rules": [
+  {
+   "name": "trees",
+   "textures": [
+    3600,
+    2600
+   ],
+   "levels": [
+    {
+     "spec": "near-th2.json"
+    },
+    {
+     "spec": "far-far1.json"
+    }
+   ],
+   "switch": [
+    {
+     "pixels": 50,
+     "of": "height"
+    }
+   ]
+  },
+  {
+   "name": "asphalt",
+   "textures": [
+    7168,
+    6656,
+    7680
+   ],
+   "supersample": {
+    "group": {
+     "run": 32,
+     "radius": 1000.0
+    }
+   },
+   "levels": [
+    "source",
+    "supersample"
+   ],
+   "switch": [
+    {
+     "grazing_texel_pixels": 0.0625,
+     "camera_height": 1.85
+    }
+   ]
+  },
+  {
+   "name": "stripes",
+   "textures": [
+    3588,
+    3590,
+    3591,
+    6232
+   ],
+   "supersample": {
+    "group": {
+     "run": 32,
+     "radius": 1000.0
+    }
+   },
+   "levels": [
+    "source",
+    "supersample"
+   ],
+   "switch": [
+    {
+     "grazing_texel_pixels": 0.0625,
+     "camera_height": 1.85
+    }
+   ]
+  },
+  {
+   "name": "finish",
+   "textures": [
+    6168
+   ],
+   "supersample": {
+    "group": {
+     "run": 32,
+     "radius": 1000.0
+    }
+   },
+   "levels": [
+    "source",
+    "supersample"
+   ],
+   "switch": [
+    {
+     "grazing_texel_pixels": 0.0625,
+     "camera_height": 1.85
+    }
+   ]
+  },
+  {
+   "name": "streaks",
+   "textures": [
+    6680
+   ],
+   "supersample": {
+    "group": {
+     "run": 32,
+     "radius": 1000.0
+    }
+   },
+   "levels": [
+    "source",
+    "supersample"
+   ],
+   "switch": [
+    {
+     "grazing_texel_pixels": 0.0625,
+     "camera_height": 1.85
+    }
+   ]
+  },
+  {
+   "name": "verges",
+   "textures": [
+    6686
+   ],
+   "supersample": {
+    "road_up": true,
+    "group": {
+     "run": 32,
+     "radius": 1000.0
+    }
+   },
+   "levels": [
+    "source",
+    "supersample"
+   ],
+   "switch": [
+    {
+     "grazing_texel_pixels": 0.0625,
+     "camera_height": 1.85
+    }
+   ]
+  },
+  {
+   "name": "board",
+   "textures": [
+    2580,
+    2578,
+    2582
+   ],
+   "supersample": {},
+   "levels": [
+    "source",
+    "supersample"
+   ],
+   "switch": [
+    {
+     "texel_pixels": 0.3333333333333333,
+     "reach": "radius"
+    }
+   ]
+  },
+  {
+   "name": "signs",
+   "textures": [
+    2064,
+    2066,
+    2068,
+    2070,
+    3592,
+    3594,
+    3596,
+    3598,
+    3080,
+    3082,
+    3084,
+    3086,
+    2072,
+    2073,
+    2074,
+    2075,
+    2076,
+    2332,
+    2078,
+    2206,
+    2082,
+    2334,
+    2570,
+    2572,
+    2574,
+    2844,
+    2846,
+    3227,
+    3349,
+    3413,
+    3477,
+    2584,
+    2588,
+    2840
+   ],
+   "supersample": {},
+   "levels": [
+    "source",
+    "supersample"
+   ],
+   "switch": [
+    {
+     "texel_pixels": 0.3333333333333333,
+     "reach": "radius"
+    }
+   ]
+  },
+  {
+   "name": "picks",
+   "textures": [
+    2084,
+    3608,
+    3864,
+    3096,
+    3224,
+    3088,
+    3090,
+    3216,
+    3218,
+    3344,
+    3472
+   ],
+   "supersample": {},
+   "levels": [
+    "source",
+    "supersample"
+   ],
+   "switch": [
+    {
+     "texel_pixels": 0.3333333333333333,
+     "reach": "radius"
+    }
+   ]
+  },
+  {
+   "name": "reels",
+   "textures": [
+    2592,
+    2720,
+    2848
+   ],
+   "supersample": {
+    "group": "instance"
+   },
+   "levels": [
+    "source",
+    "supersample"
+   ],
+   "switch": [
+    {
+     "texel_pixels": 0.3333333333333333,
+     "reach": "radius"
+    }
+   ]
+  }
+ ],
+ "cores": [
+  {
+   "spec": "near-th2.json",
+   "textures": [
+    3924
+   ]
+  },
+  {
+   "spec": "near-rock.json",
+   "textures": [
+    2056,
+    6424
+   ]
+  }
+ ]
+}

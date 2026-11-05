@@ -233,6 +233,13 @@ void NativeSoundSequencer::note_off(Channel &c, uint8_t note) {
     }
 }
 
+#ifdef M2_DC_NATIVE_HOST
+bool NativeSoundSequencer::tracks_idle() const {
+    for (const auto &track : tracks_) if (track.active) return false;
+    return true;
+}
+#endif
+
 void NativeSoundSequencer::emit(Voice &v, EventKind kind) {
     v.event.frame = frame_; v.event.kind = kind;
     if (kind == EventKind::NoteOn) ++stats_.note_ons;
@@ -248,6 +255,9 @@ void NativeSoundSequencer::stop_voice(Voice &v, bool immediate) {
 
 void NativeSoundSequencer::update_voice(Voice &v, uint16_t pitch, uint8_t level, uint8_t pan, EventKind kind) {
     v.rate_code = pitch; v.pan = pan;
+#ifdef M2_DC_NATIVE_HOST
+    v.event.rate_code = pitch; v.event.level = level; v.event.pan_code = pan;
+#endif
     const unsigned fraction = ((pitch >> 8) & 15) * 64 + ((pitch & 255) >> 2);
     int octave = int(((pitch >> 12) - 1) & 15); if (octave >= 8) octave -= 16;
     v.event.source_rate_hz = std::ldexp(kSampleRate * (1024.0 + fraction) / 1024.0, octave);

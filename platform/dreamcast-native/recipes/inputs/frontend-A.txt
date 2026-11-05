@@ -1,0 +1,9 @@
+# Front end A: credit at frame 1290 (the race_to_end timing); course select confirmed with the
+# accelerator at 1400 (wheel centre: Beginner); transmission select left to time out (automatic);
+# then the race with the accelerator held, wheel centre. Reference: m2segment ROM 5200 --inputs
+# frontend-A.txt --trace-frontend ... --trace-race ... (tests/test_frontend_lockstep.py).
+frames 5200
+1200-1209 coin=1
+1240-1249 coin=1
+1280-1289 coin=1
+1400-5199 accel=0xe0

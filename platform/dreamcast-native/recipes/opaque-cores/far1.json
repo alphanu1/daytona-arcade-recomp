@@ -1,0 +1,21 @@
+{
+ "textures": {
+  "3600": {
+   "kind": "far",
+   "corners": 5
+  },
+  "2600": {
+   "kind": "far",
+   "corners": 5
+  },
+  "3924": {
+   "kind": "rects",
+   "most": 1,
+   "tolerance": 0.1,
+   "limit": [
+    48,
+    32
+   ]
+  }
+ }
+}

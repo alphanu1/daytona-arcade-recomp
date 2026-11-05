@@ -1,0 +1,27 @@
+{
+ "textures": {
+  "3600": {
+   "kind": "tree",
+   "corners": 5,
+   "outline": 8,
+   "concave": "best",
+   "body_limit": 212
+  },
+  "2600": {
+   "kind": "tree",
+   "corners": 5,
+   "outline": 8,
+   "concave": "best",
+   "body_limit": 212
+  },
+  "3924": {
+   "kind": "rects",
+   "most": 1,
+   "tolerance": 0.1,
+   "limit": [
+    48,
+    32
+   ]
+  }
+ }
+}

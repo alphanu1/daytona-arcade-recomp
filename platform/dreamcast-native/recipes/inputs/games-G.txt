@@ -1,0 +1,12 @@
+# Games G: Beginner; credit in the ranking overlay (coins 9900-9989, phase 5); Beginner.
+frames 17000
+1200-1209 coin=1
+1240-1249 coin=1
+1280-1289 coin=1
+1400-5199 accel=0xe0
+2700-2900 steer=0xc0
+3000-3300 steer=0x50
+9900-9909 coin=1
+9940-9949 coin=1
+9980-9989 coin=1
+10100-16900 accel=0xe0

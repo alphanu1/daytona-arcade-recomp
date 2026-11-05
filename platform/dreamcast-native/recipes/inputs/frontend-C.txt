@@ -1,0 +1,14 @@
+# Front end C: credit at the cinematic's stage change (coins 600-689, game start at frame 690);
+# wheel half right (Advanced, slot 1) confirmed with the accelerator at 850; wheel right through the
+# transmission select (manual): the accelerator edge at 1016, 3 iterations into the screen, is
+# ignored (the select takes an edge only once its timer is at or below 624 of 640), the edge at
+# 1100 confirms. Select only (course 2 is not native yet).
+frames 2600
+600-609 coin=1
+640-649 coin=1
+680-689 coin=1
+720-900 steer=0xa0
+850-870 accel=0xe0
+1000-2599 steer=0xe0
+1016-1020 accel=0xe0
+1100-1110 accel=0xe0

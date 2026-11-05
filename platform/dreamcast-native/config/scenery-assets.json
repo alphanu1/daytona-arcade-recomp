@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "defaults": {
+    "collapse_flat_cutouts": true,
+    "face_group_size": 32
+  },
+  "geometry": {}
+}

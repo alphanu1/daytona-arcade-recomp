@@ -17,6 +17,9 @@
 
 #include <cstdint>
 #include <stdexcept>
+#ifdef M2_DC_NATIVE_HOST
+#include <span>
+#endif
 #include <vector>
 
 namespace rt {
@@ -221,6 +224,25 @@ public:
         uint32_t polygon_ram0[0x8000] = {};
         uint32_t polygon_ram1[0x8000] = {};
     };
+
+#ifdef M2_DC_NATIVE_HOST
+    // Host asset inspection for platform/dreamcast-native. Source coordinates
+    // are still local; raster_words independently expose the transformed
+    // reference output. The observer borrows everything for this call and
+    // requires record_pushes.
+    struct ObjectSource {
+        GeoPtr vertices;
+        uint32_t opcode, texture_points, texture_headers, address, count;
+    };
+    // Own mutable geometry/raster RAM, borrow only ROM pointers from a live
+    // observer snapshot, whose owner must outlive this instance. No
+    // display-list buffer: use inspect_object, not parse.
+    explicit Geo(const geo_state &snapshot);
+    void inspect_object(const ObjectSource &source);
+    void *object_observer_data = nullptr;
+    void (*object_observer)(void *, const geo_state &, const ObjectSource &,
+                            std::span<const uint32_t> raster_words) = nullptr;
+#endif
 
     int windows() const { return raster_.cur_window; } // after parse: the last window used
     void zclip_w(uint32_t data) { raster_.master_z_clip = uint8_t(data); } // model2_3d_zclip_w

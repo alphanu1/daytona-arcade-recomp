@@ -1,0 +1,11 @@
+# Circuit choice follows steering position: hold Long through the confirm edge.
+frames 6000
+1200-1209 coin=1
+1240-1249 coin=1
+1280-1289 coin=1
+1400-1409 start=1
+1560-1719 steer=0xe0
+1700-1719 accel=0xe0
+1860-1879 accel=0xe0
+1990-5999 accel=0xe0
+2190-5999 steer=0x98

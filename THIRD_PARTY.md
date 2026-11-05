@@ -66,3 +66,7 @@ Vita GPU display buffering builds MIT libvita2d at
 `a8f15ab09d5233f0a4e4ad0e8f6ade0da888cbed` from
 https://github.com/xerpi/libvita2d. The source hash, small display-ring adapter
 and shipped license are documented in [the Vita dependency record](platform/vita/THIRD_PARTY.md).
+
+The Dreamcast-native port's components (enDjinn, SH4ZAM, KallistiOS, AICAflow,
+AICAforge, the music pack) are in
+[its dependency record](platform/dreamcast-native/THIRD_PARTY.md).

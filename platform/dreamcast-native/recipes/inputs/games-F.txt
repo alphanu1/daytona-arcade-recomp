@@ -1,0 +1,18 @@
+# Games F: Expert by the menu of inputs-expert-timeout; cinematic credit at 9290 on Expert's cinematic; Advanced.
+frames 17000
+1200-1209 coin=1
+1240-1249 coin=1
+1280-1289 coin=1
+1400-1409 start=1
+1560-1719 steer=0xe0
+1700-1719 accel=0xe0
+1860-1879 accel=0xe0
+1990-7500 accel=0xe0
+2190-7500 steer=0x98
+9200-9209 coin=1
+9240-9249 coin=1
+9280-9289 coin=1
+9320-9500 steer=0xa0
+9450-9470 accel=0xe0
+10400-16900 accel=0xe0
+10600-16900 steer=0x98

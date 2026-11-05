@@ -1,0 +1,4 @@
+# Expert (course slot 1): the reduced view's road-surface material headers ("h0 h1 h2 h3" a line), as the 40
+# audited headers of code/render/scene/track_surface.c are course 0's. None audited yet: the world pack is made
+# with --surface-ground, so every level ground material (every face road-up) takes the road-surface depth class
+# (shadow receiver, road depth scale).

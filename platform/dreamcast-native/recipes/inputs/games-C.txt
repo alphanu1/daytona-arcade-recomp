@@ -1,0 +1,17 @@
+# Games C: Beginner with wheel swings through contacts, the accelerator held up to the time-out at frame 8389 (the car
+# moving, the player's words full); the attract after it; cinematic credit at 9090, 20 iterations in; Beginner again.
+frames 17000
+1200-1209 coin=1
+1240-1249 coin=1
+1280-1289 coin=1
+1400-7520 accel=0xe0
+2700-2900 steer=0xc0
+3000-3300 steer=0x50
+4000-4100 steer=0xe0
+6800-7200 steer=0x30
+9000-9009 coin=1
+9040-9049 coin=1
+9080-9089 coin=1
+9200-16900 accel=0xe0
+10400-10600 steer=0xc0
+10700-11000 steer=0x50

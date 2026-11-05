@@ -1,0 +1,21 @@
+# The sound effect banks of build_sfx.sh: which rendered flows are resident together, and their sample coding.
+#   BANK CODING KEY...   KEY: a key of render.tsv (tools/prepare_sfx.cpp), or a hex range FIRST-LAST of keys with
+#                        the same prefix (9e01-9e2d). CODING: pcm8 (afx_vgm's default) or adpcm (afx_vgm --adpcm).
+# Every bank BANK becomes sfx/BANK.afb + sfx/BANK.dsx; code/audio/sfx.c loads sfx/race.* at start-up, before any music.
+#
+# race: everything a race can play, resident next to the race music. AICA budget (build_sfx.sh checks it): the
+# arena AICAflow reports (2,072,768 bytes) less the largest recording the native race plays (03 The King of Speed,
+# 1,561,766 bytes with its flow) leaves about 511 KB.
+#   e0..e9     the ten engine layers (rpm x6, opponent left/right, slip, skid): true loops, PCM8
+#   9e01-9e2d  channel 14's effect kit: crashes, wall rub, passes, skid and rev, air drill, tool drop, coin, signal
+#   ae2109-c   the start voices THREE, TWO, ONE, GO
+#   ae2010     the crowd at every lap (9e11's sample: no bytes of its own), ae2002/ae2003 the slot machine
+#
+# voices: the announcer's phrases a race can play beyond the countdown (race_intent_data.h's rows and specials, the
+# lap call ae2101, the record ae2124, the finish calls ae2136..ae2138, ae2100): 50, 588 KB of ADPCM samples. They do
+# not fit beside the PCM8 race music: build_sfx.sh --voices stream (default) writes sfx/voices.pak for the streamed
+# slot (NATIVE_SFX_VOICE_STREAM=1); --voices resident adds them to the race bank (beside the race music in ADPCM).
+race pcm8 e0-e9
+race adpcm 9e01-9e2d
+race adpcm ae2109-ae210c ae2010 ae2002 ae2003
+voices adpcm ae2100 ae2101 ae2105-ae2108 ae210f ae2111 ae2114-ae2117 ae211a ae2120-ae2131 ae2133-ae2138 ae2163-ae216d ae2170 ae2171

@@ -537,3 +537,9 @@ if(EXISTS ${MAME_DIR}/src/devices/cpu/i960/i960dis.cpp)
 else()
     message(STATUS "extern/mame not found: skipping mame_oracle (run scripts/fetch_mame.sh)")
 endif()
+
+# The Dreamcast-native port's host tools and tests (platform/dreamcast-native).
+option(M2_DREAMCAST_NATIVE "Build the Dreamcast-native port's host tools and tests" OFF)
+if(M2_DREAMCAST_NATIVE)
+    include(platform/dreamcast-native/host.cmake)
+endif()

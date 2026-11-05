@@ -1,0 +1,12 @@
+# Games H: Beginner; credit in the V.R. demo after the game (coins 10400-10489); Beginner.
+frames 18000
+1200-1209 coin=1
+1240-1249 coin=1
+1280-1289 coin=1
+1400-5199 accel=0xe0
+2700-2900 steer=0xc0
+3000-3300 steer=0x50
+10400-10409 coin=1
+10440-10449 coin=1
+10480-10489 coin=1
+10600-17900 accel=0xe0

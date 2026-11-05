@@ -1,0 +1,14 @@
+# Front end D: credit at frame 1090 (coins 1000-1089); the wheel jerks between the three courses and
+# ends hard right (Expert, slot 2) when the course select times out; transmission: manual with the
+# wheel right, confirmed with the accelerator. Select only (course 1 is not native yet).
+frames 3200
+1000-1009 coin=1
+1040-1049 coin=1
+1080-1089 coin=1
+1100-1200 steer=0xa0
+1201-1300 steer=0x60
+1301-1500 steer=0xe0
+1501-1600 steer=0x90
+1601-1800 steer=0xe0
+1900-2400 steer=0xe0
+2300-2310 accel=0xe0

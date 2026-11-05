@@ -1,0 +1,15 @@
+# Games E: Advanced by the menu of inputs-advanced-timeout; cinematic credit at 7590 on Advanced's cinematic; Beginner.
+frames 16000
+1200-1209 coin=1
+1240-1249 coin=1
+1280-1289 coin=1
+1400-1409 start=1
+1560-1679 steer=0xa0
+1660-1679 accel=0xe0
+1820-1839 accel=0xe0
+1950-5500 accel=0xe0
+2150-5500 steer=0x98
+7500-7509 coin=1
+7540-7549 coin=1
+7580-7589 coin=1
+7700-15900 accel=0xe0

@@ -1,0 +1,12 @@
+# Games I: Beginner; credit in the title after the game (coins 11100-11189); Beginner.
+frames 18500
+1200-1209 coin=1
+1240-1249 coin=1
+1280-1289 coin=1
+1400-5199 accel=0xe0
+2700-2900 steer=0xc0
+3000-3300 steer=0x50
+11100-11109 coin=1
+11140-11149 coin=1
+11180-11189 coin=1
+11300-18400 accel=0xe0

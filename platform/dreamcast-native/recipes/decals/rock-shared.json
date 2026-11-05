@@ -1,0 +1,167 @@
+{
+ "composites": [
+  {
+   "name": "rock-sonic",
+   "layers": [
+    2060,
+    2056
+   ],
+   "palette": "shared:rock",
+   "enabled": true
+  },
+  {
+   "name": "rock-moss",
+   "layers": [
+    2560,
+    6424
+   ],
+   "palette": "shared:rock",
+   "enabled": true
+  },
+  {
+   "name": "finish-line",
+   "layers": [
+    7168,
+    6168,
+    6232
+   ],
+   "palette": "shared:rock",
+   "enabled": false
+  },
+  {
+   "name": "banner-2068",
+   "layers": [
+    2068,
+    2070
+   ],
+   "palette": "shared:signs",
+   "enabled": false
+  },
+  {
+   "name": "banner-2064",
+   "layers": [
+    2064,
+    2066
+   ],
+   "palette": "shared:signs",
+   "enabled": false
+  },
+  {
+   "name": "banner-3592",
+   "layers": [
+    3592,
+    3594
+   ],
+   "palette": "shared:signs",
+   "enabled": false
+  },
+  {
+   "name": "banner-3084",
+   "layers": [
+    3084,
+    3086
+   ],
+   "palette": "shared:signs",
+   "enabled": false
+  },
+  {
+   "name": "banner-3596",
+   "layers": [
+    3596,
+    3598
+   ],
+   "palette": "shared:signs",
+   "enabled": false
+  },
+  {
+   "name": "banner-3080",
+   "layers": [
+    3080,
+    3082
+   ],
+   "palette": "shared:signs",
+   "enabled": false
+  },
+  {
+   "name": "sign-2078",
+   "layers": [
+    2078,
+    2206
+   ],
+   "palette": "shared:signs",
+   "enabled": false
+  },
+  {
+   "name": "sign-2076",
+   "layers": [
+    2076,
+    2332
+   ],
+   "palette": "shared:signs",
+   "enabled": false
+  },
+  {
+   "name": "board-pitroad",
+   "layers": [
+    6746,
+    2334
+   ],
+   "palette": "shared:rock",
+   "enabled": false
+  },
+  {
+   "name": "board-sega",
+   "layers": [
+    6746,
+    3227
+   ],
+   "palette": "shared:rock",
+   "enabled": false
+  },
+  {
+   "name": "lamp-3092",
+   "layers": [
+    3092,
+    3220
+   ],
+   "palette": "shared:rock",
+   "enabled": false
+  },
+  {
+   "name": "startlight-7454",
+   "layers": [
+    7454,
+    7582
+   ],
+   "palette": "own",
+   "enabled": false
+  },
+  {
+   "name": "flags-2075",
+   "layers": [
+    2072,
+    2075
+   ],
+   "palette": "own",
+   "enabled": false
+  },
+  {
+   "name": "flags-2074",
+   "layers": [
+    3287,
+    2074
+   ],
+   "palette": "own",
+   "enabled": false
+  },
+  {
+   "name": "flags-2073",
+   "layers": [
+    2072,
+    2073
+   ],
+   "palette": "own",
+   "enabled": false
+  }
+ ]
+}

@@ -47,6 +47,11 @@ public:
     uint32_t *buffer_data() { return buffer_; }             // the geometrizer reads its display list here
     uint32_t geo_read_start() const { return geo_read_start_; }
     uint64_t tgp_instructions() const { return tgp_.count; }
+#ifdef M2_DC_NATIVE_HOST
+    // Read-only host diagnostics: no sync, no FIFO consumed, the TGP not run.
+    uint32_t diagnostic_data_word(uint16_t address) const { return tgp_.data_r(address); }
+    std::vector<uint32_t> diagnostic_pending_input() const { return {in_.begin(), in_.end()}; }
+#endif
     bool booted() const { return booted_; }
     // Run the TGP until it waits on an empty input FIFO. The game polls the
     // TGP's mailbox in buffer RAM for results; the TGP must have caught up.

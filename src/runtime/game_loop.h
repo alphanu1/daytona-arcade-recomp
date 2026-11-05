@@ -119,6 +119,14 @@ public:
         return width > kWidth ? (width - kWidth) / 2 : 0;
     }
     M2Board &board() { return *board_; }
+#ifdef M2_DC_NATIVE_HOST
+    void set_call_observer(Cpu::CallObserver observer, void *context) {
+        cpu_->on_call = observer; cpu_->on_call_ctx = context;
+    }
+    void set_return_observer(Cpu::ReturnObserver observer, void *context) {
+        cpu_->on_return = observer; cpu_->on_return_ctx = context;
+    }
+#endif
     snd::SoundBoard *sound() { return sound_.get(); } // null without the sound ROMs
     static constexpr double kFrameHz = 16000000.0 / (656.0 * 424.0); // the board's video timing
     uint64_t frames() const { return frames_; }

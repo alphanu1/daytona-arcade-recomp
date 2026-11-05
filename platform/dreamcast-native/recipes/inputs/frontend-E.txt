@@ -1,0 +1,14 @@
+# Front end E: credit late in the cinematic (coins 1600-1689, phase 3 runs to 1785); course 0 with a
+# wheel nudge left then the accelerator; manual transmission (wheel right) confirmed with the
+# accelerator; race with the accelerator held, wheel right then left, through contacts.
+frames 4700
+1600-1609 coin=1
+1640-1649 coin=1
+1680-1689 coin=1
+1700-1760 steer=0x40
+1750-1760 accel=0xe0
+1850-2050 steer=0xe0
+1990-2000 accel=0xe0
+2300-4699 accel=0xe0
+2700-2900 steer=0xc0
+3000-3300 steer=0x50

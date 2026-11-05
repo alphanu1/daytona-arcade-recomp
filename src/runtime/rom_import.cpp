@@ -143,6 +143,9 @@ M2Board::Images import_rom_set(const std::string &zip_path) {
     img.pcm2.assign(0x400000, 0);
     const Set &set = this_set();
     for (const Load &l : std::span(set.loads, set.count)) {
+#ifdef M2_DC_NATIVE_HOST
+        if (l.region >= SoundProgram) continue; // the host tools run silent: no sound ROM needed
+#endif
         const std::vector<uint8_t> data = z->read(l.file); // CRC against the archive's own
         if (data.size() != l.size || crc32(data.data(), data.size()) != l.crc)
             throw ZipError(std::string(l.file) + ": not the " + set.name + " ROM this build was recompiled from");

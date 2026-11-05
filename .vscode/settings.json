@@ -1,6 +1,10 @@
 {
     "git.ignoredRepositories": [
         "extern/mame",
-        "extern/kos-dc"
+        "extern/kos-dc",
+        "extern/aicaflow",
+        "extern/aicaflow/dependencies/AICAforge",
+        "extern/aicaflow/dependencies/AICAforge/dependencies/AICAflow",
+        "extern/endjinn"
     ]
 }

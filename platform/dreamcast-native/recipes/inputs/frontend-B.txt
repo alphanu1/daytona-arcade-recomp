@@ -1,0 +1,11 @@
+# Front end B: credit early in the cinematic (coins 300-389); both selects left to time out with the
+# wheel centre (Beginner, automatic); race with the accelerator held from the race entry and a few
+# steering swings.
+frames 4800
+300-309 coin=1
+340-349 coin=1
+380-389 coin=1
+2210-4799 accel=0xe0
+2600-2700 steer=0x60
+2900-3000 steer=0xa0
+3300-3400 steer=0x70

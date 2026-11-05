@@ -97,6 +97,9 @@ public:
     uint64_t frame() const { return frame_; }
 
     Video &video() { return *video_; }
+#ifdef M2_DC_NATIVE_HOST
+    Geo &geometry() { return *geo_; } // host inspection
+#endif
     // Widescreen (enhancement): pixels added to each side; 0 = the original screen.
     void set_wide_margin(int pixels);
     // Draw mode (enhancement): draw the screen every (1 + skip)th frame; the

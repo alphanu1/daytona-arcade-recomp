@@ -1,0 +1,12 @@
+# Expert (course slot 1): the menu of recipes/inputs/course_expert.txt (steering 0xe0 held through the
+# accelerator confirm), full accelerator and steering 0x98 from frame 2190 to the time-out and the results.
+frames 9100
+1200-1209 coin=1
+1240-1249 coin=1
+1280-1289 coin=1
+1400-1409 start=1
+1560-1719 steer=0xe0
+1700-1719 accel=0xe0
+1860-1879 accel=0xe0
+1990-9099 accel=0xe0
+2190-9099 steer=0x98

@@ -1,0 +1,6 @@
+# Games B: first game, credit in the V.R. demo of the first loop (coins 2400-2489); then as A.
+frames 7500
+2400-2409 coin=1
+2440-2449 coin=1
+2480-2489 coin=1
+2600-7499 accel=0xe0

@@ -1576,9 +1576,33 @@ GeoPtr Geo::geo_nop(geo_state *geo, uint32_t opcode, GeoPtr input)
 	return input;
 }
 
+#ifdef M2_DC_NATIVE_HOST
+Geo::Geo(const geo_state &snapshot) : buffer_(nullptr) {
+	if (!snapshot.raster) throw GeoFatal("missing inspection raster snapshot");
+	raster_ = *snapshot.raster;
+	geo_ = snapshot;
+	geo_.raster = &raster_;
+}
+
+void Geo::inspect_object(const ObjectSource &source) {
+	if ((source.opcode & 0x80000000) || ((source.opcode >> 23) & 0xf) != 1)
+		throw GeoFatal("inspection requires an object command");
+	const auto window = raster_.cur_window;
+	render_frame_start();
+	raster_.cur_window = window;
+	uint32_t parameters[] = {source.texture_points, source.texture_headers, source.address, source.count};
+	geo_object_data(&geo_, source.opcode, {parameters, 4, 0});
+}
+#endif
+
 /* Command 01: Object Data */
 GeoPtr Geo::geo_object_data(geo_state *geo, uint32_t opcode, GeoPtr input)
 {
+#ifdef M2_DC_NATIVE_HOST
+	if (object_observer && !record_pushes)
+		throw GeoFatal("object observer requires rasterizer word recording");
+	const size_t word_start = pushed.size();
+#endif
 	raster_state *raster = geo->raster;
 	uint32_t  tpa = *input++;     /* Texture Point Address */
 	uint32_t  tha = *input++;     /* Texture Header Address */
@@ -1645,6 +1669,11 @@ GeoPtr Geo::geo_object_data(geo_state *geo, uint32_t opcode, GeoPtr input)
 		/* No Normals present, Specular */
 		case 3: geo_parse_nn_s(geo, obp, obc); break;
 	}
+#ifdef M2_DC_NATIVE_HOST
+	if (object_observer)
+		object_observer(object_observer_data, *geo, {obp, opcode, tpa, tha, oba, obc},
+			std::span<const uint32_t>(pushed).subspan(word_start));
+#endif
 
 	/* move by 4 parameters */
 	return input;

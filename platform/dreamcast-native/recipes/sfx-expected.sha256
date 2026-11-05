@@ -1,0 +1,6 @@
+# sha256 of build_sfx.sh's outputs from MAME's daytona93 set (17 October 2026; --voices stream; banks.tsv with build_music.sh's PCM8 t03)
+38fa7b0cd6ae45e2e4da740a6c3d2b137fe551b1d6241950fbde4e30c3d5a53f  sfx/banks.tsv
+5390f07f6d1fc5d33b22d6955677e66f4bd018d5c57b592acdcc6ef5922acce7  sfx/race.afb
+fc5bf28ae4f86ff98a7b6698ddb9895b3032567062a468844cdb6284b59a2dfc  sfx/race.dsx
+3183d55c681b3783d93ad33c9e2a24d4accbc495bd970125176a6a5ad25952c6  sfx/render.tsv
+8e05e226fcf71f74b672708d6c2abf66b6d4a87f5d2e10334adb6a6603789f7d  sfx/voices.pak

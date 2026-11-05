@@ -1,0 +1,18 @@
+# Games D: Beginner; cinematic credit at 9090; Advanced (wheel half right, accelerator), manual (wheel right, an edge),
+# the first accelerator tick inside the standing start.
+frames 17000
+1200-1209 coin=1
+1240-1249 coin=1
+1280-1289 coin=1
+1400-7000 accel=0xe0
+2700-2900 steer=0xc0
+3000-3300 steer=0x50
+9000-9009 coin=1
+9040-9049 coin=1
+9080-9089 coin=1
+9120-9300 steer=0xa0
+9250-9270 accel=0xe0
+9400-10300 steer=0xe0
+9500-9510 accel=0xe0
+10200-16900 accel=0xe0
+10400-16900 steer=0x98
