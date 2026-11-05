@@ -235,6 +235,18 @@ The headless `m2run` and `m2gpushot` tools can exercise the same scenery
 selection and automatic budget at 32:9. The launcher remains limited to 21:9
 until the wider view's sky boundary and presentation are addressed.
 
+**Widescreen opponent visibility (14 Oct 2026):** cars have separate
+directional-cell and horizontal rejection before geometry submission. For a
+wider viewport, enhancement hooks in both revisions admit car cells from the
+original 5x5 neighbourhood while retaining course/grid exclusions, then scale
+the positive integer horizontal threshold by 496 / viewport width. The car
+cells are per cabinet and do not change the game's shared cell bitmap. Native
+width and the headless original-selection control leave both tests unchanged.
+Scenery distance and budget settings do not extend the car-cell range. The
+game's vertical and distance checks, sorting and original car-detail allocator
+still run, so additional opponents can share the existing detail allowance.
+This change does not extend car draw distance or road coverage.
+
 ## Audio, inputs, force feedback, link play
 
 Nothing here is interpreted either. A board whose CPU runs a program gets that program statically recompiled, like the i960 and the TGP; a board whose behaviour is a fixed protocol gets native C++ for that protocol (HLE). If an HLE turns out not to be exact, the board's own program is recompiled instead; there is no fallback to an interpreter.

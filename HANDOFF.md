@@ -1,5 +1,35 @@
 # Handoff
 
+## Widescreen opponent visibility (2026-10-14)
+
+Both ROM revisions use enhancement hooks before the opponent car-cell bit test
+and horizontal rejection. Widescreen builds a per-cabinet car-only 5x5
+candidate bitmap, retaining course/grid exclusions, and scales the positive
+integer horizontal threshold by 496 / viewport width. The game's shared
+bitmap, vertical and distance checks, sorting, car-detail allocator and
+2,000-unit detail allowance are unchanged. Native width and the headless
+`--original-selection` control disable both hooks. Scenery distance and budget
+settings do not extend the car-cell range. There is no new launcher option;
+32:9 remains headless until its presentation is addressed.
+
+Revision A attract analysis found two separate rejection gates: widening only
+the horizontal check restored 1,674 car selections over frames 480..1800;
+relaxing only the cell read restored another 282. Forcing all car-cell bits was
+diagnostic only because it discarded course exclusions. The implementation
+retains those exclusions. More admitted cars can redistribute the existing
+detail allowance and increase game and TGP work.
+
+The ROM-free `scenery` test passes in both revisions and checks the full cell
+grid, exclusion mask, horizontal boundaries, native no-op and cabinet
+isolation. Freshly generated i960 code contains both hooks in each revision.
+Both Release launchers and headless tools build. Native 600-frame paired
+replays matched i960/TGP/sound counts, interrupts and sampled screen hashes.
+Widescreen software and Direct3D 12 captures at 32:9 show the restored
+left-hand opponent pack in both revisions; narrower 16:9 and 21:9 samples
+also show additional opponents. These are offscreen regression checks, not
+new MAME parity, a full-race regression or live frame-pacing measurements.
+The wider-view sky boundary remains for the panorama work.
+
 ## Scenery selection and polygon budget PR branch (2026-10-08)
 
 Branch `scenery-budget` starts from upstream/main `82201ed`, separate from
