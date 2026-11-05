@@ -69,6 +69,7 @@ void Config::read(std::istream &f) {
             controls.wheel_sensitivity = std::isfinite(value) ? std::clamp(value, 0.25f, 3.0f) : 1.0f;
         }
         else if (k == "steer_invert") controls.steer_invert = v == "1";
+        else if (k == "gamepad_menu") controls.gamepad_menu = v == "1";
         else if (k == "gamepad_fix") controls.gamepad_fix = v == "1";
         else if (k == "wheel_weight") controls.wheel_weight = std::clamp(std::strtof(v.c_str(), nullptr), 0.3f, 1.2f);
         else if (k == "wheel_turnin") controls.wheel_turnin = std::clamp(std::strtof(v.c_str(), nullptr), 0.02f, 0.2f);
@@ -133,6 +134,7 @@ void Config::write(std::ostream &f) const {
     f << "stick_range=" << controls.stick_range << "\n";
     f << "stick_expo=" << controls.stick_expo << "\n";
     f << "steer_invert=" << (controls.steer_invert ? 1 : 0) << "\n";
+    f << "gamepad_menu=" << (controls.gamepad_menu ? 1 : 0) << "\n";
     f << "link=" << (link ? 1 : 0) << "\n";
     f << "link_port=" << link_port << "\n";
     f << "link_next=" << link_next << "\n";

@@ -5,7 +5,7 @@
 #   ./setup.sh [--test-extras] [--with-mame] [--build-mame]
 #
 # Linux: apt (Debian/Ubuntu), dnf (Fedora/RHEL), pacman (Arch) or zypper
-# (openSUSE); uses sudo. macOS: Xcode command line tools and Homebrew.
+# (openSUSE); uses sudo. macOS: Xcode command line tools and Homebrew or MacPorts.
 # Put your own ROM set at roms/daytona93.zip (Deluxe '93) and/or
 # roms/daytona.zip (Revision A, 1994) to have the game recompiled too.
 set -eu
@@ -62,17 +62,54 @@ Darwin)
         xcode-select --install || true
         exit 1
     fi
-    if ! command -v brew >/dev/null 2>&1; then
-        echo "setup.sh: Homebrew is needed (https://brew.sh). Install it with:" >&2
-        echo '  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"' >&2
-        echo "then run ./setup.sh again." >&2
-        exit 1
-    fi
-    # SDL 3 needs only the system frameworks (Cocoa, Metal) on macOS
-    brew install cmake ninja python git
-    # MAME's build (validation only): its macOS front end is SDL 3, found
-    # through pkg-config (without it MAME looks for an SDL3 framework instead)
-    [ "$BUILD_MAME" = 1 ] && brew install sdl3 pkgconf
+
+    # Intel Macs prefer MacPorts; Apple Silicon Macs prefer Homebrew.
+    # Fall back to the other package manager if the preferred one is absent.
+    case "$(uname -m)" in
+        x86_64)
+            if command -v port >/dev/null 2>&1; then
+                MACOS_PKG=port
+            elif command -v brew >/dev/null 2>&1; then
+                MACOS_PKG=brew
+            else
+                MACOS_PKG=""
+            fi
+            ;;
+        arm64)
+            if command -v brew >/dev/null 2>&1; then
+                MACOS_PKG=brew
+            elif command -v port >/dev/null 2>&1; then
+                MACOS_PKG=port
+            else
+                MACOS_PKG=""
+            fi
+            ;;
+        *)
+            echo "setup.sh: unsupported macOS architecture: $(uname -m)" >&2
+            exit 1
+            ;;
+    esac
+
+    case "$MACOS_PKG" in
+        port)
+            echo "setup.sh: installing macOS dependencies with MacPorts ($(uname -m))"
+            $SUDO port install cmake ninja python314 git sdl3 pkgconf
+            $SUDO port select --set python3 python314
+            PATH="/opt/local/bin:/opt/local/sbin:$PATH"
+            export PATH
+            ;;
+        brew)
+            echo "setup.sh: installing macOS dependencies with Homebrew ($(uname -m))"
+            # SDL 3 uses the system Cocoa and Metal frameworks on macOS.
+            brew install cmake ninja python git
+            [ "$BUILD_MAME" = 1 ] && brew install sdl3 pkgconf
+            ;;
+        *)
+            echo "setup.sh: install MacPorts (https://www.macports.org) or Homebrew (https://brew.sh)," >&2
+            echo "then run ./setup.sh again." >&2
+            exit 1
+            ;;
+    esac
     ;;
 *)
     echo "setup.sh: $(uname -s) not supported here; on Windows run setup.ps1" >&2

@@ -21,6 +21,10 @@ struct Enhance {
 // at 0x5016c0 and the cell numbers from 0x5016c1, chosen from the 5x5 cells
 // around the car's (r8) in a grid 16 cells wide (cell = x + 16 y).
 void hook_draw_list(Cpu &c);
+// Opponent selection: widen the cell test and horizontal cone, leaving the
+// original vertical, distance, sorting and detail-allocation checks intact.
+void hook_car_cell(Cpu &c);
+void hook_car_horizontal(Cpu &c);
 // Diagnostic observers at the game's cost updates and budget comparisons.
 // Never alter registers, RAM, conditions or control flow.
 void hook_scenery_cost(Cpu &c);

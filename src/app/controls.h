@@ -73,6 +73,8 @@ struct Controls {
     float joy_deadzone = 0.02f;   // joystick (wheel, pedal) axis dead zone
     float wheel_sensitivity = 1.0f; // response curve, 0.25..3; 1 is linear
     bool steer_invert = false;
+    // Menu selection with a pad (off: the plain mapping, as the original hardware): see Controls::sample.
+    bool gamepad_menu = false;
     // Gamepad steering fix: on = the pad steers like the arcade wheel feels (see docs/gamepad-steering.md), off = the plain direct mapping.
     bool gamepad_fix = false;
     float wheel_weight = 1.0f;  // D-pad: the lock a held push keeps as the spring stiffens (1 = the arcade's 100 / 78 / 64 / 54%)
@@ -97,6 +99,11 @@ struct Controls {
     // Live values for the UI
     float steer = 0, accel = 0, brake = 0;
     int gear = 1;
+    // Menus (circuit select, transmission select), set by the game loop each frame: see Controls::sample.
+    bool slow_steer = false;  // a 2D menu screen is showing
+    bool menu_event = false;  // a new menu screen opened this frame (from the game's memory)
+    int menu_sel = -1, menu_dir = 0; // the side the wheel is held at (-1 left, 0 centre, 1 right) and the last pushed direction
+    int menu_stage = 0, last_menu_stage = 0, menu_age = 0; // 0 circuit select, 1 transmission select; frames in the menus
     // Set by the game loop each frame, from the game's memory and the drive board (see main.cpp):
     float speed = 0.f;         // car speed, 0..~1 (HUD km/h / 215)
     float spring = 7.f / 31.f; // the wheel's centring spring as the game commands it: 0.23 (slow) .. 0.42 (above ~255 km/h)
@@ -107,6 +114,7 @@ struct Controls {
     int dpad_release_frames = 0; // frames since that push was released
 private:
     bool held_[kNumActions] = {};
+    bool was_menu_ = false;
 };
 
 } // namespace app

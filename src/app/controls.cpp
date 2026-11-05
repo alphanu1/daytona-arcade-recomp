@@ -239,60 +239,92 @@ rt::Inputs Controls::sample(const bool *keys, const Devices &d) {
     if (steer_invert) target = -target;
     const bool analog = (analog_source(SteerLeft, d) || analog_source(SteerRight, d)) &&
                         !(keys && (keys[bind[SteerLeft].key] || keys[bind[SteerRight].key]));
-    // Races. The fix reshapes a pad's D-pad and stick; a real wheel and the touch screen stay direct.
-    const float dl = digital_value(SteerLeft, keys, d), dr = digital_value(SteerRight, keys, d);
-    const float push = (steer_invert ? dl - dr : dr - dl); // keys and D-pad (button) pushes, apart from any axis
-    const bool pad_stick = !touch_steering && pad_stick_bound(d);
-    // Some handhelds' sticks report only 0 / -1 / +1: treat such a stick like the D-pad until it proves otherwise. Even
-    // such a stick can read one in-between value for a single frame while flicking across centre or full, so a hold needs
-    // at least 2 frames in a row to count; a real analogue stick clears that almost the first time it is nudged. 3 such
-    // holds (not necessarily back to back: normal driving passes through centre/full constantly, which made a single run
-    // of 12 straight frames nearly unreachable and left the D-pad model, and its sliders, driving the stick) are enough.
-    if (pad_stick && push == 0.f && std::fabs(target) > 0.03f && std::fabs(target) < 0.97f) {
-        if (++run_frames == 2) mid_frames++;
-    } else run_frames = 0;
-    if (mid_frames >= 3) seen_analog = true;
-    if (!gamepad_fix) {
-        steer = analog ? target : steer + std::clamp(target - steer, -0.12f, 0.12f); // the plain direct mapping
-    } else if (push == 0.f && analog && !pad_stick) {
-        steer = target; // a wheel or the touch screen: direct
-    } else if (push == 0.f && analog && pad_stick && seen_analog) {
-        // The game turns the car from the wheel position as it is, at every speed (research: docs/gamepad-steering.md), so
-        // the arcade's heavy wheel only limits how far a person turns it. A stick curve with the same idea: most of the
-        // travel reaches only stick_range of the lock, the last 15% opens up to the full lock, and the lock shrinks with speed.
-        constexpr float kSpeedCut = 0.45f, kSmooth = 0.18f;
-        const float v = std::clamp(speed, 0.f, 1.2f);
-        const float speed_fac = 1.f / (1.f + kSpeedCut * v * v);
-        const float a = std::fabs(target);
-        const float u = std::clamp((a - 0.85f) / 0.15f, 0.f, 1.f);
-        const float curved = std::copysign(stick_range * std::pow(a, stick_expo) + (1.f - stick_range) * u * u * (3.f - 2.f * u), target);
-        steer += (curved * std::sqrt(speed_fac) - steer) * kSmooth * speed_fac; // turn-in slows with speed too, not just the lock
+    // Menus (circuit select, then transmission select) are steered with the wheel: the game highlights the item the wheel
+    // reads at (left / centre / right), stepping while it is held outside a narrow band. A pad cannot hold a wheel, so one
+    // push moves the selection one step and the wheel stays there until the next push, as on the Saturn and Dreamcast ports.
+    // Each new menu opens on its first entry (the wheel goes back to the left, so the previous menu's choice cannot carry
+    // over), and the two-option transmission menu takes left or right at once.
+    const bool menu = slow_steer && gamepad_menu; // only with the launcher option
+    if (!menu) {
+        menu_sel = -1, menu_dir = 0, menu_stage = 0, menu_age = 0;
     } else {
-        // D-pad (or keys, or a stick that never reports in-between values) as the arcade wheel: a steady push against the
-        // centring spring the game commands, which steps up with speed. The lock the push balances at is sqrt(k0 / k) of the
-        // full lock (100 / 88 / 80 / 73%, a plain k0 / k falls off too steeply for a push that can't lean into the spring the
-        // way a wheel's own weight would); it is gained more slowly as the spring stiffens, and the spring brings the wheel
-        // back to centre faster, both at the same square root, not the plain ratio.
-        constexpr float k0 = 7.f / 31.f; // the lightest spring the game commands
-        constexpr int kReleaseHold = 3; // frames a let-go push still counts as held, so one gap between taps doesn't
-                                         // snap the fast speed-scaled return rate on early, same as seen_analog's debounce
-        const float k = std::max(spring, k0);
-        if (push != 0.f) { dpad_hold = push; dpad_release_frames = 0; }
-        else if (dpad_release_frames < kReleaseHold) dpad_release_frames++;
-        const float in = (push != 0.f || dpad_release_frames < kReleaseHold) ? dpad_hold : target;
-        // Same softening as the rates below: the spring is a force to push against, not a hard stop, so the lock it
-        // settles at shouldn't fall off as steeply with speed as the raw ratio would.
-        const float t = std::clamp(in, -1.f, 1.f) * std::clamp(wheel_weight * std::sqrt(k0 / k), 0.f, 1.f);
-        const bool out = t != 0.f && t * steer >= 0.f && std::fabs(t) > std::fabs(steer);
-        // sqrt, not linear, so the turn-in-slows / return-speeds-up spread at speed is softer: still true to the
-        // arcade's heavier-at-speed feel, but a quick reversal (a chicane) can still get real opposite lock in time.
-        const float rate = out ? wheel_turnin * std::sqrt(k0 / k) : wheel_return * std::sqrt(k / k0);
-        steer += std::clamp(t - steer, -rate, rate);
+        // A new menu screen shows as a change in a few words of the game's memory; ignore the change as the menus themselves load.
+        if (menu_event && menu_age > 20) menu_stage ^= 1; // circuit select -> transmission select
+        menu_age++;
+    }
+    if (was_menu_ && !menu) steer = 0.f; // leaving the menus: the race starts with the wheel centred
+    was_menu_ = menu;
+    if (menu) {
+        const int dir = target > 0.5f ? 1 : target < -0.5f ? -1 : 0;
+        if (menu_stage != last_menu_stage) menu_sel = -1; // a new menu: its first entry (a push still held is not a new push)
+        else if (dir != 0 && dir != menu_dir) menu_sel = menu_stage ? dir : std::clamp(menu_sel + dir, -1, 1);
+        menu_dir = dir;
+        last_menu_stage = menu_stage;
+        steer = float(menu_sel);
+    } else {
+        last_menu_stage = menu_stage;
+        // Races. The fix reshapes a pad's D-pad and stick; a real wheel and the touch screen stay direct.
+        const float dl = digital_value(SteerLeft, keys, d), dr = digital_value(SteerRight, keys, d);
+        const float push = (steer_invert ? dl - dr : dr - dl); // keys and D-pad (button) pushes, apart from any axis
+        const bool pad_stick = !touch_steering && pad_stick_bound(d);
+        // Some handhelds' sticks report only 0 / -1 / +1: treat such a stick like the D-pad until it proves otherwise. Even
+        // such a stick can read one in-between value for a single frame while flicking across centre or full, so a hold needs
+        // at least 2 frames in a row to count; a real analogue stick clears that almost the first time it is nudged. 3 such
+        // holds (not necessarily back to back: normal driving passes through centre/full constantly, which made a single run
+        // of 12 straight frames nearly unreachable and left the D-pad model, and its sliders, driving the stick) are enough.
+        if (pad_stick && push == 0.f && std::fabs(target) > 0.03f && std::fabs(target) < 0.97f) {
+            if (++run_frames == 2) mid_frames++;
+        } else run_frames = 0;
+        if (mid_frames >= 3) seen_analog = true;
+        if (!gamepad_fix) {
+            steer = analog ? target : steer + std::clamp(target - steer, -0.12f, 0.12f); // the plain direct mapping
+        } else if (push == 0.f && analog && !pad_stick) {
+            steer = target; // a wheel or the touch screen: direct
+        } else if (push == 0.f && analog && pad_stick && seen_analog) {
+            // The game turns the car from the wheel position as it is, at every speed (research: docs/gamepad-steering.md), so
+            // the arcade's heavy wheel only limits how far a person turns it. A stick curve with the same idea: most of the
+            // travel reaches only stick_range of the lock, the last 15% opens up to the full lock, and the lock shrinks with speed.
+            constexpr float kSpeedCut = 0.45f, kSmooth = 0.18f;
+            const float v = std::clamp(speed, 0.f, 1.2f);
+            const float speed_fac = 1.f / (1.f + kSpeedCut * v * v);
+            const float a = std::fabs(target);
+            const float u = std::clamp((a - 0.85f) / 0.15f, 0.f, 1.f);
+            const float curved = std::copysign(stick_range * std::pow(a, stick_expo) + (1.f - stick_range) * u * u * (3.f - 2.f * u), target);
+            steer += (curved * std::sqrt(speed_fac) - steer) * kSmooth * speed_fac; // turn-in slows with speed too, not just the lock
+        } else {
+            // D-pad (or keys, or a stick that never reports in-between values) as the arcade wheel: a steady push against the
+            // centring spring the game commands, which steps up with speed. The lock the push balances at is sqrt(k0 / k) of the
+            // full lock (100 / 88 / 80 / 73%, a plain k0 / k falls off too steeply for a push that can't lean into the spring the
+            // way a wheel's own weight would); it is gained more slowly as the spring stiffens, and the spring brings the wheel
+            // back to centre faster, both at the same square root, not the plain ratio.
+            constexpr float k0 = 7.f / 31.f; // the lightest spring the game commands
+            constexpr int kReleaseHold = 3; // frames a let-go push still counts as held, so one gap between taps doesn't
+                                             // snap the fast speed-scaled return rate on early, same as seen_analog's debounce
+            const float k = std::max(spring, k0);
+            if (push != 0.f) { dpad_hold = push; dpad_release_frames = 0; }
+            else if (dpad_release_frames < kReleaseHold) dpad_release_frames++;
+            const float in = (push != 0.f || dpad_release_frames < kReleaseHold) ? dpad_hold : target;
+            // Same softening as the rates below: the spring is a force to push against, not a hard stop, so the lock it
+            // settles at shouldn't fall off as steeply with speed as the raw ratio would.
+            const float t = std::clamp(in, -1.f, 1.f) * std::clamp(wheel_weight * std::sqrt(k0 / k), 0.f, 1.f);
+            const bool out = t != 0.f && t * steer >= 0.f && std::fabs(t) > std::fabs(steer);
+            // sqrt, not linear, so the turn-in-slows / return-speeds-up spread at speed is softer: still true to the
+            // arcade's heavier-at-speed feel, but a quick reversal (a chicane) can still get real opposite lock in time.
+            const float rate = out ? wheel_turnin * std::sqrt(k0 / k) : wheel_return * std::sqrt(k / k0);
+            steer += std::clamp(t - steer, -rate, rate);
+        }
     }
     accel = value(Accelerate, keys, d);
     brake = value(Brake, keys, d);
     // ADC ranges (MAME's daytona ports): steering 0x20-0xe0 centred on 0x80, pedals 0x20 (up) to 0xe0 (floored)
-    in.steer = uint8_t(std::lround(0x80 + std::clamp(steer, -1.f, 1.f) * 0x60));
+    const float s = std::clamp(steer, -1.f, 1.f);
+    if (menu) {
+        // Menus hold the highlight only while the wheel reads 0x86-0x96, step right above that and left below it: a
+        // centred stick or D-pad (0x80) would keep pushing left. Centre on 0x8e, keep the full range.
+        in.steer = uint8_t(std::lround(s >= 0 ? 0x8e + s * (0xe0 - 0x8e) : 0x8e + s * (0x8e - 0x20)));
+    } else {
+        in.steer = uint8_t(std::lround(0x80 + s * 0x60));
+    }
     in.accel = uint8_t(std::lround(0x20 + std::clamp(accel, 0.f, 1.f) * 0xc0));
     in.brake = uint8_t(std::lround(0x20 + std::clamp(brake, 0.f, 1.f) * 0xc0));
 

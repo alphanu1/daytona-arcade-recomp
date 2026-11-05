@@ -8,8 +8,10 @@
 
     1. Finds Android Studio, sets JAVA_HOME to its bundled JDK (JBR) and checks the version.
     2. Finds the Android SDK and sets ANDROID_HOME.
-    3. Uses sdkmanager --list_installed to confirm the required SDK packages are installed.
-    4. Checks the Gradle wrapper version and the Android Gradle Plugin (AGP) version.
+    3. Reads the project: Gradle wrapper version, Android Gradle Plugin (AGP) version, and from
+       app\build.gradle the compileSdk, ndkVersion, CMake version (and buildToolsVersion if pinned).
+       Those versions decide which SDK packages are required, so the check always matches the project.
+    4. Uses sdkmanager --list_installed to confirm those packages are installed.
     5. If everything is met: sets ANDROID_NDK_HOME, runs gradlew --stop, then
        gradlew :app:assembleDebug --refresh-dependencies.
 
@@ -21,11 +23,15 @@
 .PARAMETER ProjectDir
     Android project folder. Defaults to the current directory.
 
-.PARAMETER NdkVersion
-    NDK version to require and to use for ANDROID_NDK_HOME.
+.PARAMETER AppBuildFile
+    App module build file, relative to ProjectDir (app\build.gradle.kts is tried if needed).
 
-.PARAMETER RequiredPackages
-    SDK package ids that must be installed, as sdkmanager names them.
+.PARAMETER DefaultBuildTools
+    Build-tools version to require when the build file does not pin buildToolsVersion
+    (AGP then chooses its own default, which for AGP 9.0 is expected to be 36.0.0).
+
+.PARAMETER ExtraPackages
+    Additional SDK package ids to require, as sdkmanager names them.
 
 .PARAMETER ExpectedAgp
     Required AGP version prefix (9.0 accepts 9.0, 9.0.0, 9.0.1 ...).
@@ -46,21 +52,19 @@
     Also save JAVA_HOME and ANDROID_HOME to your user environment variables.
 
 .EXAMPLE
-    cd C:\Users\Mick\projects\daytona-arcade-recomp\platform\mobile\android
-    .\Setup-AndroidEnv.ps1
+    cd C:\Path\To\daytona-arcade-recomp\platform\mobile\android
+    powershell -ExecutionPolicy Bypass -File .\Setup-AndroidEnv.ps1 -NoRefresh -InstallMissing
 
-.EXAMPLE
-    powershell -ExecutionPolicy Bypass -File .\Setup-AndroidEnv.ps1 -InstallMissing
 #>
 [CmdletBinding()]
 param(
     [string]$ProjectDir = (Get-Location).Path,
+    [string]$AppBuildFile = 'app\build.gradle',
     [string]$StudioPath,
     [string]$SdkPath,
     [int]$MinJavaMajor = 17,
-    [string]$NdkVersion = '28.2.13676358',
-    [string[]]$RequiredPackages = @('build-tools;36.0.0', 'cmake;3.31.6', "ndk;$NdkVersion",
-                                    'platforms;android-36', 'sources;android-36'),
+    [string]$DefaultBuildTools = '36.0.0',
+    [string[]]$ExtraPackages = @(),
     [string]$ExpectedAgp = '9.0',
     [string]$ExpectedGradle = '9.1.0',
     [switch]$InstallMissing,
@@ -69,12 +73,26 @@ param(
     [switch]$Persist
 )
 
-$script:failed  = $false
-$script:missing = @()
+$script:failed     = $false
+$script:missing    = @()
+$script:required   = @()
+$script:ndkVersion = $null
 function Write-Pass($m)    { Write-Host "[ OK ] $m" -ForegroundColor Green }
 function Write-Caution($m) { Write-Host "[WARN] $m" -ForegroundColor Yellow }
 function Write-Fail($m)    { Write-Host "[FAIL] $m" -ForegroundColor Red; $script:failed = $true }
 function Write-Step($m)    { Write-Host ""; Write-Host "== $m" -ForegroundColor Cyan }
+function Add-Required($pkg) { if ($pkg -and ($script:required -notcontains $pkg)) { $script:required += $pkg } }
+
+# Returns the first non-comment line matching $pattern as @{ Value = group 1; Line = line number }
+function Find-Value($lines, $pattern) {
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match '^\s*(//|#)') { continue }
+        if ($lines[$i] -match $pattern) {
+            return [pscustomobject]@{ Value = $Matches[1]; Line = $i + 1 }
+        }
+    }
+    return $null
+}
 
 # ------------------------------------------------------------------ 1. JAVA_HOME
 function Find-AndroidStudio {
@@ -186,7 +204,122 @@ if (-not $sdk) {
     }
 }
 
-# --------------------------------------------------------------- 3. SDK packages
+# ------------------------------------------------- 3. Project: wrapper, AGP, app build file
+Write-Step "Project: Gradle wrapper, AGP and $AppBuildFile"
+$ProjectDir = $ProjectDir.TrimEnd('\')
+if (-not (Test-Path (Join-Path $ProjectDir 'gradlew.bat'))) {
+    Write-Fail "gradlew.bat not found in $ProjectDir. Run from the Android project folder or pass -ProjectDir."
+} else {
+    Write-Pass "Project: $ProjectDir"
+
+    # Gradle wrapper version
+    $wrapperProps = Join-Path $ProjectDir 'gradle\wrapper\gradle-wrapper.properties'
+    $gm = $null
+    if (Test-Path $wrapperProps) {
+        $gm = Select-String -Path $wrapperProps -Pattern 'gradle-([\d\.]+(?:-[\w\.]+)?)-(?:bin|all)\.zip' |
+            Select-Object -First 1
+    }
+    if (-not $gm) {
+        Write-Fail "Could not read the Gradle version from $wrapperProps"
+    } else {
+        $gv = $gm.Matches[0].Groups[1].Value
+        if ($gv -eq $ExpectedGradle) { Write-Pass "Gradle wrapper $gv" }
+        else { Write-Fail "Gradle wrapper is $gv, expected $ExpectedGradle (edit distributionUrl in $wrapperProps)" }
+    }
+
+    # AGP: plugins block (Groovy or Kotlin DSL), buildscript classpath, or version catalog
+    $agpPatterns = @(
+        'com\.android\.(?:application|library)[\x27\x22]\)?\s+version\s+[\x27\x22]([^\x27\x22]+)[\x27\x22]',
+        'com\.android\.tools\.build:gradle:([\w\.\-]+)',
+        '^\s*agp\s*=\s*[\x27\x22]([^\x27\x22]+)[\x27\x22]'
+    )
+    $agp = $null
+    foreach ($rel in 'build.gradle', 'build.gradle.kts', 'settings.gradle', 'settings.gradle.kts', 'gradle\libs.versions.toml') {
+        $f = Join-Path $ProjectDir $rel
+        if (-not (Test-Path $f)) { continue }
+        $flines = @(Get-Content $f)
+        foreach ($p in $agpPatterns) {
+            $hit = Find-Value $flines $p
+            if ($hit) { $agp = [pscustomobject]@{ Version = $hit.Value; File = $f; Line = $hit.Line }; break }
+        }
+        if ($agp) { break }
+    }
+    if (-not $agp) {
+        Write-Caution "Could not find an AGP version in build.gradle, settings.gradle or libs.versions.toml (it may be set elsewhere)"
+    } else {
+        $v = $agp.Version
+        if ($v -eq $ExpectedAgp -or $v.StartsWith("$ExpectedAgp.") -or $v.StartsWith("$ExpectedAgp-")) {
+            Write-Pass "Android Gradle Plugin $v  ($($agp.File):$($agp.Line))"
+        } else {
+            Write-Fail "Android Gradle Plugin is $v, expected $ExpectedAgp.x. Edit $($agp.File) line $($agp.Line)."
+        }
+    }
+
+    # App module: the SDK, NDK, CMake (and build-tools) versions the build will ask for
+    $appFile = Join-Path $ProjectDir $AppBuildFile
+    if (-not (Test-Path $appFile) -and (Test-Path "$appFile.kts")) { $appFile = "$appFile.kts" }
+    if (-not (Test-Path $appFile)) {
+        Write-Fail "App build file not found: $appFile"
+    } else {
+        $leaf  = Split-Path $appFile -Leaf
+        $lines = @(Get-Content $appFile)
+        Write-Host "Reading required versions from $appFile"
+
+        $q = '[\x27\x22]'
+        $csdk = Find-Value $lines '^\s*compileSdk(?:Version)?\s*=?\s*(\d+(?:\.\d+)?)\b'
+        if (-not $csdk) { $csdk = Find-Value $lines 'release\((\d+(?:\.\d+)?)' }
+        if ($csdk) {
+            Write-Pass "compileSdk $($csdk.Value)  ($leaf`:$($csdk.Line))"
+            Add-Required "platforms;android-$($csdk.Value)"
+            Add-Required "sources;android-$($csdk.Value)"
+        } else {
+            Write-Caution "compileSdk not found in $leaf; platform and sources packages not checked"
+        }
+
+        $bt = Find-Value $lines "^\s*buildToolsVersion\s*=?\s*$q([^\x27\x22]+)$q"
+        if ($bt) {
+            Write-Pass "buildToolsVersion $($bt.Value)  ($leaf`:$($bt.Line))"
+            Add-Required "build-tools;$($bt.Value)"
+        } else {
+            Write-Caution "buildToolsVersion is not pinned in $leaf; AGP picks its default, so requiring build-tools $DefaultBuildTools (-DefaultBuildTools to change)"
+            Add-Required "build-tools;$DefaultBuildTools"
+        }
+
+        $ndk = Find-Value $lines "^\s*ndkVersion\s*=?\s*$q([^\x27\x22]+)$q"
+        if ($ndk) {
+            Write-Pass "ndkVersion $($ndk.Value)  ($leaf`:$($ndk.Line))"
+            Add-Required "ndk;$($ndk.Value)"
+            $script:ndkVersion = $ndk.Value
+        } else {
+            Write-Caution "ndkVersion not found in $leaf; NDK not checked and ANDROID_NDK_HOME will not be set"
+        }
+
+        $cm = Find-Value $lines "^\s*version\s*=?\s*$q([\d\.]+)\+?$q"
+        if ($cm) {
+            Write-Pass "CMake $($cm.Value)  ($leaf`:$($cm.Line))"
+            Add-Required "cmake;$($cm.Value)"
+        } else {
+            Write-Caution "CMake version is not pinned in $leaf; CMake not checked"
+        }
+
+        # The native build only defines the 'daytona' target when the generated sources exist
+        $gen = Find-Value $lines 'M2_GEN_ROOT=([^\x27\x22]+)'
+        if ($gen) {
+            $genPath = $gen.Value.Replace('${rootProject.projectDir}', $ProjectDir) -replace '/', '\'
+            $genPath = [IO.Path]::GetFullPath($genPath)
+            $hasGen  = (Test-Path $genPath) -and
+                       (Get-ChildItem $genPath -Recurse -Depth 2 -Filter gen_table.cpp -ErrorAction SilentlyContinue |
+                            Select-Object -First 1)
+            if ($hasGen) {
+                Write-Pass "M2_GEN_ROOT $genPath has generated sources"
+            } else {
+                Write-Fail "M2_GEN_ROOT resolves to $genPath, which has no generated sources (gen_table.cpp). Without them CMake does not define the 'daytona' target. Point M2_GEN_ROOT ($leaf`:$($gen.Line)) at the folder that holds them."
+            }
+        }
+    }
+}
+
+# --------------------------------------------------------------- 4. SDK packages
 function Get-InstalledPackages($sm) {
     $result = @{}
     Write-Host "Running sdkmanager --list_installed (can take a few seconds)..."
@@ -201,9 +334,9 @@ function Get-InstalledPackages($sm) {
     return $result
 }
 
-function Test-Packages($installed) {
+function Test-Packages($installed, $packages) {
     $script:missing = @()
-    foreach ($pkg in $RequiredPackages) {
+    foreach ($pkg in $packages) {
         $ok = $false; $detail = ''
         if ($installed.ContainsKey($pkg)) {
             $ok = $true; $detail = "version $($installed[$pkg])"
@@ -217,8 +350,11 @@ function Test-Packages($installed) {
 }
 
 Write-Step "SDK packages"
+$packages = @($script:required) + @($ExtraPackages)
 if (-not $sdk) {
     Write-Fail "Skipped: no SDK"
+} elseif ($packages.Count -eq 0) {
+    Write-Caution "No packages to check (no versions found in the build file)"
 } else {
     $sm = Join-Path $sdk 'cmdline-tools\latest\bin\sdkmanager.bat'
     if (-not (Test-Path $sm)) {
@@ -237,14 +373,14 @@ if (-not $sdk) {
         if ($installed.Count -eq 0) { Write-Caution "sdkmanager returned no package list; checking folders instead" }
     }
 
-    Test-Packages $installed
+    Test-Packages $installed $packages
 
     if ($script:missing.Count -gt 0 -and $InstallMissing) {
         if ($sm -and $env:JAVA_HOME) {
             Write-Host "Installing with sdkmanager (accept the licences when asked): $($script:missing -join ', ')"
             & $sm @($script:missing)
             $installed = Get-InstalledPackages $sm
-            Test-Packages $installed
+            Test-Packages $installed $packages
         } else {
             Write-Caution "-InstallMissing needs sdkmanager and a working JAVA_HOME"
         }
@@ -254,67 +390,13 @@ if (-not $sdk) {
         Write-Fail "Missing SDK packages: $($script:missing -join ', ')"
         Write-Host ""
         Write-Host "  Install them from Android Studio: Tools > SDK Manager." -ForegroundColor Yellow
-        Write-Host "    - 'SDK Platforms' tab: tick 'Show Package Details', then the API 36 platform and 'Sources for Android 36'" -ForegroundColor Yellow
-        Write-Host "    - 'SDK Tools' tab: tick 'Show Package Details', then Build-Tools 36.0.0, CMake 3.31.6, NDK (Side by side) $NdkVersion" -ForegroundColor Yellow
+        Write-Host "    - 'SDK Platforms' tab: tick 'Show Package Details', then the API platform and 'Sources for Android ...'" -ForegroundColor Yellow
+        Write-Host "    - 'SDK Tools' tab: tick 'Show Package Details', then Build-Tools, CMake and NDK (Side by side) at the versions listed above" -ForegroundColor Yellow
         Write-Host "  The SDK Manager is a dialog inside Studio and cannot be launched on its own." -ForegroundColor Yellow
-        Write-Host "  The command-line equivalent works without opening Studio:" -ForegroundColor Yellow
         if ($sm) {
+            Write-Host "  The command-line equivalent works without opening Studio:" -ForegroundColor Yellow
             Write-Host "    & '$sm' $(($script:missing | ForEach-Object { "'$_'" }) -join ' ')" -ForegroundColor Yellow
             Write-Host "  or re-run this script with -InstallMissing." -ForegroundColor Yellow
-        }
-    }
-}
-
-# ------------------------------------------------- 4. Gradle wrapper and AGP versions
-Write-Step "Project: Gradle wrapper and Android Gradle Plugin"
-if (-not (Test-Path (Join-Path $ProjectDir 'gradlew.bat'))) {
-    Write-Fail "gradlew.bat not found in $ProjectDir. Run from the Android project folder or pass -ProjectDir."
-} else {
-    Write-Pass "Project: $ProjectDir"
-
-    $wrapperProps = Join-Path $ProjectDir 'gradle\wrapper\gradle-wrapper.properties'
-    $gm = $null
-    if (Test-Path $wrapperProps) {
-        $gm = Select-String -Path $wrapperProps -Pattern 'gradle-([\d\.]+(?:-[\w\.]+)?)-(?:bin|all)\.zip' |
-            Select-Object -First 1
-    }
-    if (-not $gm) {
-        Write-Fail "Could not read the Gradle version from $wrapperProps"
-    } else {
-        $gv = $gm.Matches[0].Groups[1].Value
-        if ($gv -eq $ExpectedGradle) { Write-Pass "Gradle wrapper $gv" }
-        else { Write-Fail "Gradle wrapper is $gv, expected $ExpectedGradle (edit distributionUrl in $wrapperProps)" }
-    }
-
-    # AGP: plugins block (Groovy or Kotlin DSL), buildscript classpath, or version catalog
-    $patterns = @(
-        'com\.android\.(?:application|library)[\x27\x22]\)?\s+version\s+[\x27\x22]([^\x27\x22]+)[\x27\x22]',
-        'com\.android\.tools\.build:gradle:([\w\.\-]+)',
-        '^\s*agp\s*=\s*[\x27\x22]([^\x27\x22]+)[\x27\x22]'
-    )
-    $agp = $null
-    foreach ($rel in 'build.gradle', 'build.gradle.kts', 'settings.gradle', 'settings.gradle.kts', 'gradle\libs.versions.toml') {
-        $f = Join-Path $ProjectDir $rel
-        if (-not (Test-Path $f)) { continue }
-        $n = 0
-        foreach ($line in (Get-Content $f)) {
-            $n++
-            if ($line -match '^\s*(//|#)') { continue }
-            foreach ($p in $patterns) {
-                if ($line -match $p) { $agp = [pscustomobject]@{ Version = $Matches[1]; File = $f; Line = $n }; break }
-            }
-            if ($agp) { break }
-        }
-        if ($agp) { break }
-    }
-    if (-not $agp) {
-        Write-Caution "Could not find an AGP version in build.gradle, settings.gradle or libs.versions.toml (it may be set elsewhere)"
-    } else {
-        $v = $agp.Version
-        if ($v -eq $ExpectedAgp -or $v.StartsWith("$ExpectedAgp.") -or $v.StartsWith("$ExpectedAgp-")) {
-            Write-Pass "Android Gradle Plugin $v  ($($agp.File):$($agp.Line))"
-        } else {
-            Write-Fail "Android Gradle Plugin is $v, expected $ExpectedAgp.x. Edit $($agp.File) line $($agp.Line)."
         }
     }
 }
@@ -330,8 +412,10 @@ if ($script:failed) {
 Write-Host "All prerequisites met." -ForegroundColor Green
 
 # ---------------------------------------------------------------------- 5. build
-$env:ANDROID_NDK_HOME = Join-Path $sdk "ndk\$NdkVersion"
-Write-Pass "ANDROID_NDK_HOME = $env:ANDROID_NDK_HOME"
+if ($script:ndkVersion) {
+    $env:ANDROID_NDK_HOME = Join-Path $sdk "ndk\$($script:ndkVersion)"
+    Write-Pass "ANDROID_NDK_HOME = $env:ANDROID_NDK_HOME"
+}
 if ($NoBuild) { exit 0 }
 
 $code = 1
