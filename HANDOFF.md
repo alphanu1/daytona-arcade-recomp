@@ -1,5 +1,19 @@
 # Handoff
 
+## Scheduler callback storage (2026-11-05)
+
+Desktop now releases completed callback captures and recycles their slots,
+using the existing Dreamcast/fast-generator implementation. The executing
+function moves to a local before its slot can be reused, preserving lifetime
+when callbacks schedule more work or grow the vector. Event order and guest
+instruction boundaries are unchanged.
+
+The bounded-storage test fails against the previous desktop implementation.
+After warm-up, one million callbacks allocate zero additional bytes in the
+desktop, Dreamcast-memory and fast-generator host configurations. Ordering,
+capture lifetime, growth during a callback and IRQ replay checks pass.
+The next changes in this series cover software catch-up, then panoramas.
+
 ## Widescreen opponent visibility (2026-10-14)
 
 Both ROM revisions use enhancement hooks before the opponent car-cell bit test

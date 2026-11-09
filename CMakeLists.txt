@@ -372,6 +372,10 @@ target_link_libraries(traceinfo PRIVATE trace)
 
 enable_testing()
 
+add_executable(test_lockstep tests/test_lockstep.cpp)
+target_link_libraries(test_lockstep PRIVATE runtime)
+add_test(NAME lockstep COMMAND test_lockstep)
+
 add_executable(test_scenery tests/test_scenery.cpp src/runtime/enhance.cpp)
 target_include_directories(test_scenery PRIVATE src)
 add_test(NAME scenery COMMAND test_scenery)

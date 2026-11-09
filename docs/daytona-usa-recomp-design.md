@@ -180,6 +180,14 @@ One frame's output is a flat list: polygon (4 verts, screen xyz, uv, colour, tex
 - Sorting: reproduce the hardware's priority/z-sort order first; a z-buffer mode is an enhancement toggle, since hardware ordering artefacts are part of the look.
 - Tilemaps (HUD, speedometer, course map, text) render as a separate layer at native 496x384 and scale with nearest or sharp-bilinear filtering.
 
+**Scheduler callback storage.** Completed callbacks release their captures
+and recycle their slots on desktop as on the existing fast-generator and
+Dreamcast paths. The executing function is moved to a local before its slot
+is freed: a callback can then add events, reuse the slot or grow the vector
+without invalidating the function being executed. Event order and instruction
+boundaries remain unchanged. Bounded storage avoids recurring vector growth
+and retained captures during long sessions.
+
 **Vita GXM presentation enhancements.** The Vita branch exposes the same
 options described below, but the wide GPU tile capability is currently disabled
 after hardware feedback reported worse speed. Widescreen uses the CPU tile
