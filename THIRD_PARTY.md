@@ -70,3 +70,10 @@ and shipped license are documented in [the Vita dependency record](platform/vita
 The Dreamcast-native port's components (enDjinn, SH4ZAM, KallistiOS, AICAflow,
 AICAforge, the music pack) are in
 [its dependency record](platform/dreamcast-native/THIRD_PARTY.md).
+
+The original-panorama shader build also supports native Windows invocation
+with official DXC v1.9.2609 (`dxc_2026_09_29`) and unmodified SPIRV-Cross
+`aa217aeb6c9f0ace7a0ab233b28807edf45eb165`. These retain the tool-only licences
+listed above; neither is linked into the game. The script's Docker fallback
+retains the listed Linux tools. Native commands use argument lists and create
+the output directory without requiring a POSIX shell.

@@ -126,11 +126,11 @@ opens first:
   machines; the game itself runs at full speed), Skip launcher (start
   the game straight away next time; Esc still opens the launcher), and Hold
   Test button (opens the game's test menu without an F2 key, as on mobile). Enhancements
-  (off by default): widescreen 16:10, 16:9 or 21:9, which shows more of the
+  (off by default): widescreen 16:10, 16:9, 21:9 or 32:9, which shows more of the
   scene at the sides with the HUD kept 4:3 in the centre, or with "HUD at
   the screen edges" (experimental) the lap times, position, condition panel and course map
-  moved out to the sides (in a race the sky at the sides is plain blue, or
-  with "Stretch tile background" the game's sky picture stretched across);
+  moved out to the sides. Supported race skies automatically use the complete
+  original panorama from the ROM at its native source scale in both revisions;
   and
   a draw distance slider for the scenery (default
   is the game's own; shorter runs faster). Widescreen also selects scenery

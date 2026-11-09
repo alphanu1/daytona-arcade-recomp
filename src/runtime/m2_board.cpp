@@ -10,6 +10,7 @@
 // THIRD_PARTY.md.
 
 #include "runtime/m2_board.h"
+#include "runtime/panorama_revision.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -230,7 +231,9 @@ void M2Board::set_wide_margin(int pixels) {
 }
 
 void M2Board::vblank_end() {
-    if (frame_skip_ && frame_ % uint64_t(frame_skip_ + 1) != 0) { // draw mode: keep the last picture
+    const bool superseded = std::exchange(skip_next_screen_update_, false);
+    if (superseded || (frame_skip_ && frame_ % uint64_t(frame_skip_ + 1) != 0)) {
+        video_->reset_profile();
         ++frame_;
         return;
     }
@@ -246,6 +249,20 @@ void M2Board::vblank_end() {
     m.tex1 = reinterpret_cast<const uint32_t *>(tex1_.data());
 #endif
     m.tex_generation = tex_generation_;
+    if (video_->panorama().original) {
+        // Sample alongside the tile registers at vblank,
+        // not after the CPU has begun preparing the following frame.
+        auto &p = video_->panorama();
+        p.phase = p.sweep ? uint16_t(frame_ * 512) : p.register_phase;
+        p.phase_valid = p.sweep || p.register_valid;
+        p.horizontal = read_word(0x100a004);
+        p.vertical = read_word(0x100a00c);
+        const auto *revision = panorama_revision(M2_ROMSET);
+        p.course = revision ? read_byte(0x501460) : 255;
+        p.source_valid = p.original && revision && Panorama::source_for(p.course) &&
+                         read_dword(revision->selector) == revision->descriptor(p.course);
+        if (p.source_valid) p.source_valid = p.load_original(img_.main_data, p.course);
+    }
     video_->screen_update(geo_->polys, geo_->windows(), m);
     ++frame_;
 }
@@ -603,6 +620,20 @@ void M2Board::write_byte(uint32_t addr, uint8_t data) {
 
 void M2Board::write_word(uint32_t addr, uint16_t data) {
     addr &= ~1u;
+    if ((addr == 0x501308 || addr == 0x100a004) && video_->panorama().original) {
+        auto &sky = video_->panorama();
+        // Latch when the game writes its scroll value, then when that value
+        // reaches the tile registers. Reading the live camera at present time
+        // can be a frame ahead of the picture and jumps at wrap boundaries.
+        const auto *revision = panorama_revision(M2_ROMSET);
+        if (revision) {
+            if (addr == 0x501308) sky.pending_phase = read_word(revision->phase);
+            else {
+                sky.register_phase = sky.pending_phase;
+                sky.register_valid = ((sky.register_phase >> 5) & 511) == (data & 511);
+            }
+        }
+    }
 #ifdef M2_FAST_BUS
     if ((addr >> kPageBits) == fast_write_page_) {
         std::memcpy(M2_AL(fast_write_base_ + (addr & 0xfff), 2), &data, 2);

@@ -42,6 +42,7 @@
 #include "runtime/enhance_diagnostics.h"
 #include "../common/nvram.h"
 #include "../common/scenery_log.h"
+#include "../common/sky_log.h"
 #include "app/link_socket.h"
 
 #include <algorithm>
@@ -96,13 +97,14 @@ int main(int argc, char **argv) {
     }
     const std::string dir = argv[1];
     const uint64_t frames = std::strtoull(argv[2], nullptr, 10);
-    std::string dump_dir, inputs_path, wav_path, nvram_dir, save_nvram_dir, link_next, scenery_log_path;
+    std::string dump_dir, inputs_path, wav_path, nvram_dir, save_nvram_dir, link_next, scenery_log_path, sky_log_path;
     int link_listen = 0;
     bool link_sync = false, native_check = false;
     uint64_t every = 0, dump_from = 0;
     double aspect = 0;
+    bool panorama_original = false;
     int frame_skip = 0;
-    bool hud_edges = false, stretch_backdrop = false, original_selection = false;
+    bool hud_edges = false, stretch_backdrop = false, original_selection = false, panorama_sweep = false, panorama_only = false;
     uint32_t draw_budget = 0;
     for (int i = 3; i < argc; i++) {
         if (!std::strcmp(argv[i], "--draw-budget") && i + 1 == argc) {
@@ -115,11 +117,16 @@ int main(int argc, char **argv) {
         if (!std::strcmp(argv[i], "--native-audio-check")) native_check = true;
         if (!std::strcmp(argv[i], "--draw-order-only")) rt::EnhanceDiagnostics::draw_order_only = true;
         if (!std::strcmp(argv[i], "--original-selection")) original_selection = true;
+        if (!std::strcmp(argv[i], "--panorama-original")) panorama_original = true;
+        if (!std::strcmp(argv[i], "--panorama-sweep")) panorama_sweep = true;
+        if (!std::strcmp(argv[i], "--panorama-only")) panorama_only = true;
     }
     for (int i = 3; i + 1 < argc; i += 2) {
         if (!std::strcmp(argv[i], "--hud-edges") || !std::strcmp(argv[i], "--stretch-backdrop") ||
             !std::strcmp(argv[i], "--link-sync") || !std::strcmp(argv[i], "--native-audio-check") ||
-            !std::strcmp(argv[i], "--draw-order-only") || !std::strcmp(argv[i], "--original-selection")) { i--; continue; }
+            !std::strcmp(argv[i], "--draw-order-only") || !std::strcmp(argv[i], "--original-selection") ||
+            !std::strcmp(argv[i], "--panorama-sweep") ||
+            !std::strcmp(argv[i], "--panorama-only") || !std::strcmp(argv[i], "--panorama-original")) { i--; continue; }
         if (!std::strcmp(argv[i], "--inputs")) inputs_path = argv[i + 1];
         else if (!std::strcmp(argv[i], "--dump")) dump_dir = argv[i + 1];
         else if (!std::strcmp(argv[i], "--every")) every = std::strtoull(argv[i + 1], nullptr, 10);
@@ -137,6 +144,7 @@ int main(int argc, char **argv) {
             }
         }
         else if (!std::strcmp(argv[i], "--scenery-log")) scenery_log_path = argv[i + 1];
+        else if (!std::strcmp(argv[i], "--sky-log")) sky_log_path = argv[i + 1];
         else if (!std::strcmp(argv[i], "--frame-skip")) frame_skip = std::atoi(argv[i + 1]);
         else if (!std::strcmp(argv[i], "--aspect")) {
             double w = 0, h = 0;
@@ -148,7 +156,11 @@ int main(int argc, char **argv) {
         if (rt::EnhanceDiagnostics::draw_order_only && rt::Enhance::draw_distance <= 0)
             throw std::runtime_error("--draw-order-only needs positive --draw-distance");
         tools::SceneryLog scenery_log(scenery_log_path);
+        tools::SkyLog sky_log(sky_log_path);
         rt::GameLoop game(dir, !native_check);
+        game.board().video().panorama().original = panorama_original;
+        game.board().video().panorama().sweep = panorama_sweep;
+        game.board().video().panorama().only = panorama_only;
         game.set_draw_budget(draw_budget);
         game.board().scenery()->original_selection = original_selection;
         scenery_log.attach(game);
@@ -213,6 +225,7 @@ int main(int argc, char **argv) {
             }
             if (game.board().frame() >= dump_from)
                 scenery_log.write(game);
+            if (game.board().frame() >= dump_from) sky_log.write(game);
             if (!dump_dir.empty() && every && game.board().frame() >= dump_from && game.board().frame() % every == 0) {
                 char path[512];
                 std::snprintf(path, sizeof path, "%s/run_%05" PRIu64 ".rgb", dump_dir.c_str(), game.board().frame());

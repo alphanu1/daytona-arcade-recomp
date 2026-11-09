@@ -112,8 +112,7 @@ public:
     void set_hud_edges(bool on) { board_->video().set_hud_edges(on); }
     static int wide_margin(double aspect) {
         if (!std::isfinite(aspect) || aspect <= 0) return 0;
-        // Headless capture tools can exercise the scenery path at 32:9;
-        // the launcher keeps its supported choices at 21:9 and below.
+        // Match the largest supported launcher and capture-tool aspect.
         aspect = std::min(aspect, 32.0 / 9.0);
         const int width = 2 * int(kHeight * aspect / 2 + 0.5);
         return width > kWidth ? (width - kWidth) / 2 : 0;

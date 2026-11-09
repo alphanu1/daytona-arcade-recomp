@@ -436,23 +436,22 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
             ImGui::Spacing();
             ImGui::Separator();
             ImGui::TextUnformatted("Enhancements");
-            static const char *aspects[] = {"Original (4:3)", "16:10", "16:9", "21:9"};
-            static const char *aspect_ids[] = {"", "16:10", "16:9", "21:9"};
+            static const char *aspects[] = {"Original (4:3)", "16:10", "16:9", "21:9", "32:9"};
+            static const char *aspect_ids[] = {"", "16:10", "16:9", "21:9", "32:9"};
             int aspect = 0;
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < IM_ARRAYSIZE(aspect_ids); i++)
                 if (cfg_.aspect == aspect_ids[i]) aspect = i;
             ImGui::SetNextItemWidth(200);
-            if (ImGui::Combo("Widescreen", &aspect, aspects, 4)) {
+            if (ImGui::Combo("Widescreen", &aspect, aspects, IM_ARRAYSIZE(aspects))) {
                 cfg_.aspect = aspect_ids[aspect];
                 cfg_.save();
             }
             ImGui::BeginDisabled(cfg_.aspect.empty());
             if (ImGui::Checkbox("HUD at the screen edges (Experimental)", &cfg_.hud_edges)) cfg_.save();
-            if (ImGui::Checkbox("Stretch tile background (Experimental)", &cfg_.stretch_backdrop)) cfg_.save();
             ImGui::EndDisabled();
             ImGui::TextDisabled("Shows more of the scene at the sides. The HUD stays 4:3 in the centre, or its\n"
-                                "lap times, position and maps move out to the edges. In-game the sky at the\n"
-                                "sides is plain blue, or the game's sky picture stretched across the screen.");
+                                "lap times, position and maps move out to the edges. Course backgrounds\n"
+                                "automatically show more of the original panorama at their native scale.");
             static const char *distances[] = {"Shortest", "Shorter", "Default", "Further", "Furthest"};
             ImGui::SetNextItemWidth(200);
             int dd = std::clamp(cfg_.draw_distance, -2, 2);

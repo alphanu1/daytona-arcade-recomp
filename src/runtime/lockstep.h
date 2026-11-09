@@ -97,13 +97,11 @@ private:
     size_t next_ = 0;
     bool free_run_ = false, poked_ = false;
     int taken_ = 0;
-#if defined(M2_DC_MEMORY) || defined(M2_FAST_GEN)
     // Slots of calls_ already called, for reuse: free run adds a callback
     // every 1024 instructions and calls_ never shrinks (16 bytes each on the
     // SH-4: 1 MB by frame 220 of the attract mode). Last, so the members the
     // generated code's inline boundary() and poke() use keep their offsets.
     std::vector<size_t> free_calls_;
-#endif
 #ifdef M2_FAST_GEN
 public:
     uint32_t epoch = 0; // (last, like free_calls_)

@@ -13,6 +13,7 @@
 #pragma once
 
 #include "runtime/raster.h"
+#include "runtime/panorama.h"
 #include "runtime/video_profile.h"
 
 #include <algorithm>
@@ -56,6 +57,15 @@ public:
     // width (on) or fill the margins with the sky's plain colour (off, default).
     void set_stretch_backdrop(bool on) { stretch_backdrop_ = on; }
     bool stretch_backdrop() const { return stretch_backdrop_; }
+    Panorama &panorama() { return panorama_; }
+    const Panorama &panorama() const { return panorama_; }
+    bool panorama_active() const {
+        return (panorama_.original && panorama_.source_valid) &&
+               panorama_.phase_valid && margin_ && scene() &&
+               (panorama_.course == panorama_.cached_course) &&
+               !(panorama_.vertical & 0x8000) && (panorama_.vertical & 0x6000) <= 0x2000 &&
+               !(panorama_.horizontal & 0x8000);
+    }
     // With widescreen: the race HUD's side groups (lap times; position,
     // condition panel, course map) at the screen edges instead of 4:3 centred.
     void set_hud_edges(bool on) {
@@ -208,6 +218,7 @@ public:
     using ProfileClock = uint64_t (*)();
     void set_profile_clock(ProfileClock clock) { profile_clock_ = clock; }
     const VideoProfile &last_profile() const { return profile_; }
+    void reset_profile() { profile_ = {}; }
     static constexpr int W = 496, H = 384;
 
 private:
@@ -326,7 +337,11 @@ private:
     // screens put their 3D in 2-3 windows, Revision A's have none, titles none.
     bool scene() const { return gpu_windows_ <= 1 && coverage_ >= 15; }
     bool stretch_backdrop_ = false;
+    Panorama panorama_;
+    std::vector<uint32_t> panorama_overlay_; // capture-only forced camera sweep
     void fill_margins();
+    void fill_panorama_margin(uint32_t *dest, int x, int y, int edge) const;
+    uint16_t panorama_background_pen(int x, int y) const;
     bool hud_edges_ = false;
     bool hud_on_ = false;                      // the rasterizer is moving the HUD overlay polygons
     void set_raster_hud_moves();
