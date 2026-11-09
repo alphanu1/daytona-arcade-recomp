@@ -230,7 +230,9 @@ void M2Board::set_wide_margin(int pixels) {
 }
 
 void M2Board::vblank_end() {
-    if (frame_skip_ && frame_ % uint64_t(frame_skip_ + 1) != 0) { // draw mode: keep the last picture
+    const bool superseded = std::exchange(skip_next_screen_update_, false);
+    if (superseded || (frame_skip_ && frame_ % uint64_t(frame_skip_ + 1) != 0)) {
+        video_->reset_profile();
         ++frame_;
         return;
     }

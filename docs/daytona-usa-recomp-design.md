@@ -180,6 +180,14 @@ One frame's output is a flat list: polygon (4 verts, screen xyz, uv, colour, tex
 - Sorting: reproduce the hardware's priority/z-sort order first; a z-buffer mode is an enhancement toggle, since hardware ordering artefacts are part of the look.
 - Tilemaps (HUD, speedometer, course map, text) render as a separate layer at native 496x384 and scale with nearest or sharp-bilinear filtering.
 
+**Desktop software catch-up.** The pacer may request several guest updates
+before one presentation. CPU, geometry, sound and cabinet I/O run for every
+update; software composition runs only for the last picture scheduled by
+the existing draw mode in that batch. That picture can precede the final
+guest update when drawing every second or third frame. Hardware rendering
+keeps its existing preparation path. The one-shot suppression flag clears
+at vblank even when the normal draw schedule also skips the picture.
+
 **Scheduler callback storage.** Completed callbacks release their captures
 and recycle their slots on desktop as on the existing fast-generator and
 Dreamcast paths. The executing function is moved to a local before its slot

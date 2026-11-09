@@ -208,6 +208,7 @@ public:
     using ProfileClock = uint64_t (*)();
     void set_profile_clock(ProfileClock clock) { profile_clock_ = clock; }
     const VideoProfile &last_profile() const { return profile_; }
+    void reset_profile() { profile_ = {}; }
     static constexpr int W = 496, H = 384;
 
 private:

@@ -19,11 +19,13 @@
 #include "app/startup_error.h"
 #include "app/ffb.h"
 #include "app/pacing.h"
+#include "app/frame_batch.h"
 #include "runtime/test_hold.h"
 #include "app/link_socket.h"
 #include "app/gpu/gpu_renderer.h"
 #include "app/launcher.h"
 #include "app/native_audio.h"
+#include "app/video_settings.h"
 #include "runtime/native_sound_engine.h"
 #include "runtime/game_loop.h"
 #include "runtime/rom_import.h"
@@ -518,13 +520,7 @@ int main(int argc, char **argv) {
             if (const uint64_t wait = pacer.wait_ns(SDL_GetTicksNS())) SDL_DelayPrecise(wait); // VRR: hold the frame
         const uint64_t now = SDL_GetTicksNS();
         if (game && !in_launcher) {
-            game->set_aspect(cfg.aspect_ratio()); // widescreen: no-op unless it changed
-            game->set_hud_edges(cfg.hud_edges);
-            game->set_frame_skip(cfg.draw_mode);
-            game->board().video().set_external_3d(cfg.renderer == "hardware" && gpu.ok(), true);
-            game->set_stretch_backdrop(cfg.stretch_backdrop);
-            rt::GameLoop::set_draw_distance(cfg.draw_distance);
-            game->set_draw_budget(cfg.draw_budget);
+            app::apply_video_settings(*game, cfg, gpu.ok());
             for (int frames = pacer.frames(now); frames > 0; --frames) {
                 cfg.controls.slow_steer = game->menu_screen();
                 { // a new menu screen: these two words of the game's memory change once, as circuit select hands over to transmission select
@@ -541,6 +537,9 @@ int main(int argc, char **argv) {
                 rt::Inputs inputs = cfg.controls.sample(SDL_GetKeyboardState(nullptr), devices);
                 if (cfg.hold_test != test_hold.armed()) cfg.hold_test ? test_hold.arm() : test_hold.cancel();
                 if (test_hold.apply(game->frames(), inputs.in0)) cfg.hold_test = false; // held: the box clears
+                if (!game->board().video().external_3d() &&
+                    !app::keep_software_picture(game->board().frame(), unsigned(frames), cfg.draw_mode))
+                    game->board().skip_next_screen_update();
                 game->run_frame(inputs);
 #ifdef M2_MOBILE
                 touch.consumed();

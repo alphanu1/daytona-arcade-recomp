@@ -1,5 +1,21 @@
 # Handoff
 
+## Software catch-up pictures (2026-11-05)
+
+The desktop keeps the last scheduled software picture in each presentation
+batch while running every CPU, geometry, sound and cabinet update. The last
+scheduled picture may precede the final update in every-second/third draw
+modes. Hardware preparation keeps its existing path. The one-shot suppression
+flag clears at vblank, including updates skipped by the normal draw schedule.
+
+The settings helper initially applies the existing stretch policy. Headless
+catch-up checks explicitly exercise 32:9 while the launcher still caps width
+at 21:9. All six 5,400-update course checks pass across both revisions, with
+12,960 batch comparisons of final pixels, CPU/TGP counts, sampled RAM, audio
+and cabinet state. Frame-batch tests cover every supported batch size and draw
+mode. The timing fixture excludes display waits and is not a live-pacing test.
+Panorama presentation and the launcher 32:9 option follow in the next patch.
+
 ## Scheduler callback storage (2026-11-05)
 
 Desktop now releases completed callback captures and recycles their slots,

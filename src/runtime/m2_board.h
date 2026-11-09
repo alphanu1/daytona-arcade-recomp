@@ -93,6 +93,9 @@ public:
     // Frame control, called by the runner.
     void vblank_start();       // MAME screen_vblank: geometrizer, vblank IRQ
     void vblank_end();         // screen_update
+    // Omit one picture replaced by a later picture in this presentation batch.
+    // CPU, geometry, sound and vblank events still run for that update.
+    void skip_next_screen_update() { skip_next_screen_update_ = true; }
     bool in_idle_loop() const; // the game is waiting for vblank
     uint64_t frame() const { return frame_; }
 
@@ -216,6 +219,7 @@ private:
     std::vector<uint8_t> uart_out_;
     uint64_t sound_total_ = 0;
     void uart_shift_done();
+    bool skip_next_screen_update_ = false;
 };
 
 } // namespace rt

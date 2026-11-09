@@ -312,6 +312,10 @@ if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN} AND EXISTS ${SND_GEN})
         # Headless frames through the hardware renderer, to compare with m2run's.
         add_executable(m2gpushot tools/m2gpushot/main.cpp ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})
         target_link_libraries(m2gpushot PRIVATE runtime gpurender)
+        # Explicit local-ROM integration check; not part of ordinary builds.
+        add_executable(m2catchupcheck EXCLUDE_FROM_ALL tests/catchup_main.cpp tests/catchup_play.cpp
+            src/app/config.cpp src/app/controls.cpp ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})
+        target_link_libraries(m2catchupcheck PRIVATE runtime ${M2_SDL_TARGET})
     else()
         message(STATUS "extern/sdl3 not found: skipping the windowed game (run scripts/setup.py)")
     endif()
@@ -375,6 +379,10 @@ enable_testing()
 add_executable(test_lockstep tests/test_lockstep.cpp)
 target_link_libraries(test_lockstep PRIVATE runtime)
 add_test(NAME lockstep COMMAND test_lockstep)
+
+add_executable(test_frame_batch tests/test_frame_batch.cpp)
+target_include_directories(test_frame_batch PRIVATE src)
+add_test(NAME frame_batch COMMAND test_frame_batch)
 
 add_executable(test_scenery tests/test_scenery.cpp src/runtime/enhance.cpp)
 target_include_directories(test_scenery PRIVATE src)
