@@ -11,7 +11,8 @@ inline void apply_video_settings(rt::GameLoop &game, const Config &cfg, bool har
     game.set_frame_skip(cfg.draw_mode);
     auto &video = game.board().video();
     video.set_external_3d(cfg.renderer == "hardware" && hardware_available, true);
-    game.set_stretch_backdrop(cfg.stretch_backdrop);
+    video.panorama().original = game.screen_width() > rt::GameLoop::kWidth;
+    game.set_stretch_backdrop(false);
     rt::GameLoop::set_draw_distance(cfg.draw_distance);
     game.set_draw_budget(cfg.draw_budget);
 }

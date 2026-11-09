@@ -228,6 +228,9 @@ float4 ps_quad(QuadOut i) : SV_Target {
 //            the pens (0xAARRGGBB, 4096); [16 + 4096..] tile RAM words 0x4000 to
 //            0x6fff (line scroll tables, scroll registers, window masks), two
 //            per word
+// Optional original panorama: tiledata[3] enabled, [4] full scroll,
+// [5] source Y, [6] course height. Packed 2048-wide u16 palette indices/category
+// follow the four pixmaps in tilepix.
 [[vk::binding(0, 2)]] StructuredBuffer<uint> tilepix : register(t0, space2);
 [[vk::binding(1, 2)]] StructuredBuffer<uint> tiledata : register(t1, space2);
 
@@ -246,11 +249,24 @@ uint tile_pixel(uint l, int x, int y) {
     return (i & 1u) != 0u ? d >> 16 : d & 0xffffu;
 }
 
+uint sky_pixel(uint l, int x, int y, int screen_x, bool opaque) {
+    const int sy = y & 511;
+    const int top = int(tiledata[5]), bottom = top + int(tiledata[6]);
+    if (tiledata[3] != 0u && opaque && l == 2u && sy >= top && sy < bottom) {
+        const uint u = uint(screen_x - int(tiledata[4])) & 2047u;
+        const uint index = 4u * 512u * 512u + uint(sy - top) * 2048u + u;
+        const uint d = tilepix[index >> 1];
+        return (index & 1u) != 0u ? d >> 16 : d & 0xffffu;
+    }
+    return tile_pixel(l, x, y);
+}
+
 // draw(bitmap, layer, opaque ? DRAW_OPAQUE : 0) at (x, y): true if it writes
 // the pixel, with the pen it writes.
 bool tile_layer(uint layer, bool opaque, int x, int y, out uint pen) {
     pen = 0u;
     const uint l = layer >> 1, tpri = layer & 1u;
+    if (l < 2u && (x < 0 || x >= kTileW)) return false; // overlays stay native-width
     const uint hscr = tile_word(0x5000u + l);
     const uint vscr = tile_word(0x5004u + l);
     const uint ctrl = tile_word(0x5004u + (l & 2u));
@@ -283,19 +299,20 @@ bool tile_layer(uint layer, bool opaque, int x, int y, out uint pen) {
             }
         }
         // tilemap_draw: the category must match, and the pixel be opaque unless drawing opaque
-        const uint p = tile_pixel(src, x + sx, y + sy);
+        const uint p = sky_pixel(src, x + sx, y + sy, x, opaque);
         if ((p >> 15) != tpri || (!opaque && (p & 15u) == 0u)) return false;
         pen = p & 0xfffu;
         return true;
     }
 
     // draw_rect: the 8-pixel window mask (inverted for odd layers), then the pixmap
-    uint m = tile_word(((layer & 4u) != 0u ? 0x6800u : 0x6000u) + uint(y) * 4u + uint(x >> 7));
+    const int mask_x = tiledata[3] != 0u && l >= 2u ? clamp(x, 0, kTileW - 1) : x;
+    uint m = tile_word(((layer & 4u) != 0u ? 0x6800u : 0x6000u) + uint(y) * 4u + uint(mask_x >> 7));
     if ((l & 1u) != 0u) m = ~m;
-    if ((m & (0x8000u >> uint((x >> 3) & 15))) != 0u) return false;
+    if ((m & (0x8000u >> uint((mask_x >> 3) & 15))) != 0u) return false;
     const int hs = (hscr & 0x8000u) != 0u ? int((0u - tile_word(0x4000u + 0x200u * l + uint(y))) & 0x1ffu)
                                           : int((0u - hscr) & 0x1ffu);
-    const uint p = tile_pixel(l, x + hs, int(vscr & 0x1ffu) + y);
+    const uint p = sky_pixel(l, x + hs, int(vscr & 0x1ffu) + y, x, opaque);
     if (!opaque && ((p >> 15) != tpri || (p & 15u) == 0u)) return false;
     pen = p & 0xfffu;
     return true;
@@ -324,6 +341,7 @@ float4 ps_tiles_back(QuadOut i) : SV_Target {
     const int scale = int(tiledata[2]);
     const int out_w = kTileW + 2 * margin;
     const int x = int(i.pos.x) / scale - margin, y = int(i.pos.y) / scale;
+    if (tiledata[3] != 0u) return pen_color(tiledata[kTilePens + tile_back(x, y)]);
     if (margin > 0 && fill == 2u) { // stretched: column (x + 0.5) * W / out - 0.5, blended
         const float u = clamp((float(x + margin) + 0.5) * float(kTileW) / float(out_w) - 0.5, 0.0, float(kTileW - 1));
         const int a = int(u), b = min(a + 1, kTileW - 1);

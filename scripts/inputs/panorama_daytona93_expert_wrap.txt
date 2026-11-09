@@ -1,0 +1,19 @@
+# Deluxe '93 Expert panorama wrap control. Same race/camera inputs as the
+# standard validation, then a right turn to cross the full sky-phase boundary.
+frames 6000
+1200-1209 coin=1
+1240-1249 coin=1
+1280-1289 coin=1
+1400-1409 start=1
+1400-2100 steer=0xe0
+1600-1609 start=1
+1800-1809 vr1=1
+2000-2009 start=1
+2200-2209 vr1=1
+2400-2409 start=1
+1800-5999 accel=0xe0
+3200-3209 vr1=1
+3800-3809 vr2=1
+4400-4409 vr3=1
+5000-5009 vr4=1
+5200-5900 steer=0xe0

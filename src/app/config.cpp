@@ -42,7 +42,8 @@ void Config::read(std::istream &f) {
         else if (k == "skip_launcher") skip_launcher = v == "1";
         else if (k == "aspect") aspect = v;
         else if (k == "hud_edges") hud_edges = v == "1";
-        else if (k == "stretch_backdrop") stretch_backdrop = v == "1";
+        // Old stretch_backdrop keys are ignored and omitted on the next save.
+        // Widescreen now selects the original panorama automatically.
         else if (k == "draw_distance") draw_distance = std::clamp(std::atoi(v.c_str()), -2, 2);
         else if (k == "draw_budget") {
             if (!rt::parse_scenery_budget(v, draw_budget)) {
@@ -109,7 +110,6 @@ void Config::write(std::ostream &f) const {
     f << "skip_launcher=" << (skip_launcher ? 1 : 0) << "\n";
     f << "aspect=" << aspect << "\n";
     f << "hud_edges=" << (hud_edges ? 1 : 0) << "\n";
-    f << "stretch_backdrop=" << (stretch_backdrop ? 1 : 0) << "\n";
     f << "draw_distance=" << draw_distance << "\n";
     f << "draw_budget=" << draw_budget << "\n";
     f << "draw_mode=" << draw_mode << "\n";

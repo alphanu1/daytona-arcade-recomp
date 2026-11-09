@@ -174,12 +174,13 @@ perfectly smooth but about 4% faster than the arcade. Hover over each for
 details; the line under them says what is in effect.
 
 **Widescreen** (optional): in the launcher, under **Enhancements**, set
-**Widescreen** to 16:10, 16:9 or 21:9. You see more of the scene at the
+**Widescreen** to 16:10, 16:9, 21:9 or 32:9. You see more of the scene at the
 sides, nothing is stretched, and the HUD stays 4:3 in the centre; tick **HUD
 at the screen edges (Experimental)** to move the lap times, position and maps out to the
-sides. In a race the sky at the sides is plain blue; tick **Stretch tile
-background (Experimental)** to stretch the game's own sky picture across
-the whole screen instead. All apply straight away, even mid-race.
+sides. Supported race skies automatically show more of the complete original
+panorama from the ROM without stretching it. Loading and unsupported scenes
+retain the original background rendering. These settings apply straight away,
+even mid-race. See [original course panoramas](original-panorama.md) for details.
 
 **Draw mode** (on the Game tab): **Double buffered** draws every frame, as
 the arcade game does. **Single buffered** draws every second frame and

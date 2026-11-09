@@ -42,6 +42,7 @@ public:
     // scale, textures a mip level finer per doubling, the tilemaps' pixels
     // repeated.
     void render(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *target, int w, int h, const rt::Video &video, int scale = 1);
+    uint64_t panorama_uploads() const { return panorama_uploads_; }
 
 private:
     struct PolyVertex {
@@ -62,6 +63,10 @@ private:
     SDL_GPUGraphicsPipeline *poly_pipe_ = nullptr, *quad_pipe_ = nullptr, *back_pipe_ = nullptr, *front_pipe_ = nullptr;
     SDL_GPUSampler *sampler_ = nullptr;
     SDL_GPUTexture *front_ = nullptr; // the front layers from the CPU (HUD at the edges)
+    uint64_t panorama_uploads_ = 0;
+    uint64_t original_panorama_instance_ = 0;
+    uint8_t original_panorama_course_ = 255;
+    uint32_t tilepix_panorama_bytes_ = 0;
     SDL_GPUTexture *depth_ = nullptr;
     int depth_w_ = 0, depth_h_ = 0, front_w_ = 0, front_h_ = 0;
     SDL_GPUBuffer *vbuf_ = nullptr, *qbuf_ = nullptr;
@@ -89,6 +94,7 @@ private:
                           int storage_buffers = 0);
     bool ensure(int w, int h, int scale, uint32_t vert_bytes);
     void build(const rt::Video &video, int w, int h, int scale);
+    void prepare_panorama(SDL_GPUCommandBuffer *cmd, const rt::Video &video);
 };
 
 } // namespace app

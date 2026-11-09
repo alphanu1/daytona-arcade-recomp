@@ -43,8 +43,14 @@ def commands(dxc, spirv_cross):
 
 def main():
     if shutil.which("dxc") and shutil.which("spirv-cross"):
-        for c in commands("dxc", "spirv-cross"):
-            subprocess.run(c, shell=True, check=True, cwd=ROOT)
+        os.makedirs(os.path.join(ROOT, WORK), exist_ok=True)
+        for entry, _, profile in ENTRIES:
+            base = f"{WORK}/{entry}"
+            subprocess.run(["dxc", "-spirv", "-fspv-target-env=vulkan1.0", "-fspv-entrypoint-name=main",
+                            "-T", profile, "-E", entry, "-Fo", base + ".spv", SRC], check=True, cwd=ROOT)
+            subprocess.run(["dxc", "-T", profile, "-E", entry, "-Fo", base + ".dxil", SRC], check=True, cwd=ROOT)
+            subprocess.run(["spirv-cross", base + ".spv", "--msl", "--msl-version", "20100",
+                            "--output", base + ".metal"], check=True, cwd=ROOT)
     else:
         if not shutil.which("docker"):
             sys.exit("build_shaders: needs dxc and spirv-cross on PATH, or Docker")

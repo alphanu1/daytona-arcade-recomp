@@ -1,5 +1,138 @@
 # Handoff
 
+## Original course panoramas (2026-11-05)
+
+Widescreen automatically decodes and samples the complete original course sky
+from the imported ROM in Revision A and Deluxe '93. Beginner, Advanced and
+Expert share the source layout, with revision-specific observer addresses.
+The launcher offers 32:9. Original remains the default; the old desktop/mobile
+stretch preference is ignored and omitted on the next save. Headless tools
+retain explicit original-panorama, background-isolation and scroll diagnostics.
+
+Full camera phase is latched at the game-scroll and tile-register writes,
+before any fast-write shortcut, then sampled with the displayed frame.
+Course descriptors, live streamed tile columns and character data guard
+activation during loading. Palette indices/category preserve live fades,
+split layers, window masks, filler rows and native foreground composition.
+Software normally fills only the margins; the GPU uses the shared tile pass.
+Each cabinet owns its CPU cache. One course replaces the previous one, while
+the GPU reuses its largest allocation and uploads on course/instance changes.
+The largest persistent index array is 1.69 MiB on each of CPU and GPU, plus
+CPU validation records. Native startup allocates no panorama artwork.
+
+Both Release launchers, capture tools and the explicit local-ROM fixture build.
+Nine focused CTests pass in each revision. Paired 18,000-frame native replays
+match current upstream execution/sound counts and all 240 sampled software/GPU
+images. The live-settings fixtures pass 11,475 whole-image comparisons across three
+courses, native intervals, all widescreen choices, renderer changes and restarts.
+Twelve game instances pass 48 palette stages, frozen-state aspect crops and
+software/Direct3D 12 agreement at every widescreen width, without redundant
+course uploads. SPIR-V, DXIL and MSL were regenerated; runtime GPU validation
+uses Direct3D 12.
+
+The capture matrix across three courses and both revisions passes 115 jobs covering 758,106 game
+frames and 5,335 captures: 78 comparison groups / 3,131 sampled frame comparisons
+match, including consecutive loading/wrap sequences and all four race cameras.
+Offscreen observations on an Intel Core i9-12900HK / Iris Xe, Windows /
+Direct3D 12: equal-window native game-stage ranges overlap upstream's in both
+revisions. At 32:9, median GPU-path game work is 2.19 -> 2.24 ms/frame in
+Revision A and 2.08 -> 2.09 ms/frame in Deluxe '93; renderer CPU time stays
+around 0.25-0.26 ms/frame. Beginner peak process working set rises about
+3 MiB. Repeated software averages span 12.5-14.8 ms/frame with overlapping
+off/on ranges; these noisy short runs do not establish a speedup.
+Procedure, source addresses, memory costs and fallback rules are in
+`docs/original-panorama.md`. The capture runner is self-contained rather than
+depending on the earlier comparison helper that was not upstreamed.
+
+Failed validation assumption: separate aspect-ratio replays do not necessarily
+reach the same camera state at the same frame number. Deluxe '93 Beginner at
+frame 5100 has live camera phase 49427 at 16:9 and 47608 at 32:9, identically
+with panoramas off and on. Comparing those images as exact crops was invalid.
+The palette fixture now checks all narrower widescreen crops on one frozen
+game state, on both CPU and GPU, including fades. This required no renderer
+change. The earlier temporary generated-sky proof is absent from this port.
+
+The upstream GPU tool does not implement `--bench-from`; it silently measures
+the complete run. Native before/after timings therefore use all 6,000 frames
+in both tool versions. Panorama off/on timings use the new tool's matching
+3,000-frame race window after warm-up. Comparing those different windows was
+invalid; native samples were repeated with equal windows.
+
+Scenery/opponent selection and budgets retain the merged policies. Road
+coverage, HUD refinements and 2D title/menu presentation remain separate work.
+These enhancement comparisons do not establish new MAME or hardware parity,
+other GPU backends' runtime behaviour or live frame pacing.
+
+### Fullscreen software regression investigation (2026-11-05)
+
+Manual 32:9 fullscreen testing reported sustained slowdown compared with the
+development build. The earlier offscreen panorama-on/off runs were insufficient:
+they measured single pictures against upstream, not catch-up batches against
+the working development executable. The test build also used MSVC while the
+working executable used ClangCL. Rebuild both revisions with ClangCL for a
+matching toolchain; this does not change the repository's compiler policy.
+The earlier software averages also omitted edge HUD placement, which is
+enabled in the reported configuration. New software timing runs include it.
+The command-line tool beside the working launcher was also stale (built
+before the launcher's later changes), so its attempted timing comparison was
+discarded. A shared build directory or CMake cache is not proof that every
+existing executable has been rebuilt. Compare identified binaries and keep
+the actual fullscreen launcher comparison as a separate manual check.
+
+Two existing development fixes were missing from the panorama port. Desktop
+software catch-up now omits pictures superseded before presentation, keeping
+the last scheduled draw even when the final update is frame-skipped. Every
+CPU, geometry, sound and cabinet update still runs. Completed scheduler
+callbacks now release captures and recycle slots on desktop, using the same
+implementation already enabled for Dreamcast/fast-generator builds. The
+executing callback moves to a local before its slot can be reused.
+
+The bounded-storage test fails against the pre-fix desktop runtime. With
+recycling, one million callbacks after warm-up allocate zero additional bytes
+in desktop, Dreamcast-memory and fast-generator host configurations; ordering,
+capture lifetime, vector growth during a callback and IRQ replay checks pass.
+Nine focused CTests pass in each ClangCL revision build. A matching
+6,000-frame Revision A software replay at 32:9 with edge HUD placement takes
+34.87 ms/update in the original MSVC test build and 18.05 ms/update in the
+rebuilt ClangCL version with both runtime fixes. Execution/sound counts,
+drive commands and final screen hash match. This is one completed timing
+pair, measuring elapsed update work without presentation; it does not isolate
+the compiler from the runtime changes or establish a frame-rate guarantee.
+`frame_batch` covers all desktop batch sizes and draw modes. The explicit
+local-ROM `m2catchupcheck` compares final pixels, execution counts, sampled RAM,
+audio and cabinet state while changing aspect, renderer and draw mode.
+The saved 1,024-batch catch-up schedule passes those comparisons, including
+24 multi-update batches and 26 suppression requests. Historical polygon
+metadata matches 624/1,024 rows, so this is a schedule replay, not an exact
+recreation of every historical geometry list. Its two-cabinet timings are
+higher than the single-cabinet probe and are not an app-latency estimate.
+A separate probe links the reference launcher's generated objects with its
+runtime and compares the same cabinet state with the rebuilt runtime. The
+three-update batch ending at frame 960 takes 21.41 vs 21.86 ms, with identical
+i960/TGP counts, polygon counts and final pixels. Each renders one picture
+while executing all three updates; this single sample establishes similar
+cost for that case, not identical performance in every scene.
+All six 5,400-update course fixtures pass: 12,960 batch comparisons across
+both revisions, covering aspect/renderer changes, all draw modes and cameras.
+Every guest update runs on both sides, including 7,350 suppression requests;
+final pictures, audio and cabinet state match. The ClangCL palette fixtures
+also repeat all 48 stages and frozen-state aspect crops successfully through
+software and Direct3D 12.
+Both ClangCL revisions also repeat the 18,000-frame native software/GPU
+comparisons: all 240 sampled images match upstream, with unchanged software
+execution, sound and drive-command counts. The reference executable and
+normal launcher settings, EEPROM and backup RAM remain unchanged.
+Manual follow-up reports substantially improved 32:9 fullscreen software
+performance. That feedback is qualitative; the recorded timings are offscreen
+and do not establish live frame-time distributions or every scene's cost.
+
+The changes are prepared as one PR in three ordered patches: callback reuse,
+software catch-up, then original panoramas and launcher 32:9. Each patch has
+its own build/test boundary and handoff update. The shared settings helper is
+introduced with catch-up using the existing stretch policy; panorama policy
+and the wider launcher limit arrive in the third patch. The headless catch-up
+fixture explicitly exercises 32:9 before that launcher option is exposed.
+
 ## Software catch-up pictures (2026-11-05)
 
 The desktop keeps the last scheduled software picture in each presentation

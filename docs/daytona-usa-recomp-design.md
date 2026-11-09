@@ -180,6 +180,20 @@ One frame's output is a flat list: polygon (4 verts, screen xyz, uv, colour, tex
 - Sorting: reproduce the hardware's priority/z-sort order first; a z-buffer mode is an enhancement toggle, since hardware ordering artefacts are part of the look.
 - Tilemaps (HUD, speedometer, course map, text) render as a separate layer at native 496x384 and scale with nearest or sharp-bilinear filtering.
 
+**Original course panoramas.** Desktop widescreen selects the complete original
+2048-pixel sky from the imported ROM, across all three courses in Revision A
+and Deluxe '93. Host caches retain palette indices/category and validate the
+live streamed tilemap and character data before activation. The full camera
+phase is latched at the game-scroll and tile-register writes, then sampled
+with the displayed frame. Native startup decodes no panorama artwork.
+Software composition preserves the native centre and fills only the margins;
+the shared GPU tile shader samples the same indices using the live palette.
+One course's CPU cache is replaced on a course change, and the GPU buffer
+reuses its largest allocation. The former stretch preference is retired from
+the desktop/mobile app; headless controls remain available for comparisons.
+See [original course panoramas](original-panorama.md) for source addresses,
+memory costs, fallback rules and reproducible validation commands.
+
 **Desktop software catch-up.** The pacer may request several guest updates
 before one presentation. CPU, geometry, sound and cabinet I/O run for every
 update; software composition runs only for the last picture scheduled by
@@ -241,15 +255,16 @@ With every enhancement off the build is the game as MAME runs it; parity checks 
 | Option | Approach | Risk |
 | --- | --- | --- |
 | Internal resolution | Render 3D at N× or window size | Low |
-| Widescreen | **Done** (launcher: 16:10, 16:9, 21:9). Same focal length, viewport widened: the geometrizer's side clip planes and the rasterizer's clip move out by a margin for full-width viewports, the 3D layer is drawn margin-shifted into a wider buffer, tilemaps (HUD, text) stay 496 wide in the centre, and the side margins continue the back tilemaps in 3D scenes (drawn margin to margin with draw()'s own scroll, layer-split and mask rules) or each row's edge colours on 2D screens. Option "HUD at the screen edges": the race HUD's side groups move out by the margin, decided per item (front-layer pixels grouped into blobs; a blob moves only if wholly inside a group, so banners crossing a group stay whole), plus the condition panel's own overlay quads (the polygons at its box's sort z inside its outline), only while that box is on screen. The scenery list includes nearby cells omitted by the game's narrow directional mask and retains course exclusions and the original selected-cell order | Widening selection can increase object-list work; the geometrizer still clips to the view |
+| Widescreen | **Implemented** (launcher: 16:10, 16:9, 21:9, 32:9). Same focal length, viewport widened: the geometrizer's side clip planes and the rasterizer's clip move out by a margin for full-width viewports, the 3D layer is drawn margin-shifted into a wider buffer, tilemaps (HUD, text) stay 496 wide in the centre, and supported race skies use the complete original ROM panorama at native source scale in both revisions. Scroll, palette fades, split layers and window masks retain the original composition; loading and unsupported states fall back, and 2D screens retain edge fill. Option "HUD at the screen edges": the race HUD's side groups move out by the margin, decided per item (front-layer pixels grouped into blobs; a blob moves only if wholly inside a group, so banners crossing a group stay whole), plus the condition panel's own overlay quads (the polygons at its box's sort z inside its outline), only while that box is on screen. The scenery list includes nearby cells omitted by the game's narrow directional mask and retains course exclusions and the original selected-cell order | Widening selection can increase object-list work; the geometrizer still clips to the view |
 | Draw distance and polygon budget | **Scenery done** (launcher slider: Shortest, Shorter, Default, Further, Furthest; polygon budget: Automatic or Custom; `m2run --draw-distance/--draw-budget`). The game draws scenery by course cell: a 16x16 grid, the 5x5 cells around the car filtered by visibility masks into a list (0x16f74..0x17070; count 0x5016c0, cells from 0x5016c1, room for 63), then object lists until a per-frame cost allowance (0x5010f4, 5000 at boot) is exceeded. At native height, Automatic uses `max(ceil(5000 * max(width, 496) / 496), 5000 * (1 + max(draw_distance, 0)))`, capped at 1,000,000. This gives 5,000 at original width, 6,875 at 16:9 and 9,033 at 21:9 with Default distance. A positive Custom allowance overrides that calculation. The road is a separate 14-section window (0x13f5c: 5 behind, 8 ahead) shared with game logic and is unchanged | Further adds scenery but not road; cost allowance measures object metadata rather than visible polygon count |
 | Texture filtering | Bilinear/anisotropic on atlases | Low; atlas padding needed |
 | High frame rate | Interpolate display lists between frames | High; logic stays at native rate |
 | MSAA | Standard multisample target | Low |
 
 The headless `m2run` and `m2gpushot` tools can exercise the same scenery
-selection and automatic budget at 32:9. The launcher remains limited to 21:9
-until the wider view's sky boundary and presentation are addressed.
+selection and automatic budget at 32:9. Original course panoramas now address
+the race-sky boundary, and the launcher also offers 32:9. Road coverage, HUD
+refinements and 2D-screen presentation are separate work.
 
 **Widescreen opponent visibility (14 Oct 2026):** cars have separate
 directional-cell and horizontal rejection before geometry submission. For a

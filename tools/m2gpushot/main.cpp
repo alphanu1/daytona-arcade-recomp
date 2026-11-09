@@ -4,6 +4,7 @@
 //
 //   m2gpushot IMAGES_DIR FRAMES --dump DIR --every N [--inputs scripts/inputs/X.txt]
 //             [--aspect W:H [--hud-edges] [--stretch-backdrop]] [--scale N] [--nvram DIR] [--dump-from FRAME]
+//             [--dump-tiles DIR] (local decoded layer/source snapshots at capture frames)
 //             [--draw-distance N] [--draw-budget N] [--scenery-log FILE] [--original-selection]
 //   m2gpushot IMAGES_DIR FRAMES --bench [--inputs ...] [--aspect ...] [--scale N]
 //
@@ -23,6 +24,8 @@
 #include "../common/input_script.h"
 #include "../common/nvram.h"
 #include "../common/scenery_log.h"
+#include "../common/sky_log.h"
+#include "../common/tile_dump.h"
 
 #include <SDL3/SDL.h>
 
@@ -41,12 +44,13 @@ int main(int argc, char **argv) {
     }
     const std::string dir = argv[1];
     const uint64_t frames = std::strtoull(argv[2], nullptr, 10);
-    std::string dump_dir, inputs_path, nvram_dir, scenery_log_path;
+    std::string dump_dir, inputs_path, nvram_dir, scenery_log_path, sky_log_path, tile_dump_dir;
     uint32_t draw_budget = 0;
-    uint64_t every = 0, dump_from = 0;
+    uint64_t every = 0, dump_from = 0, bench_from = 0;
     int scale = 1;
     double aspect = 0;
-    bool hud_edges = false, stretch = false, bench = false, original_selection = false;
+    bool panorama_original = false;
+    bool hud_edges = false, stretch = false, bench = false, original_selection = false, panorama_sweep = false, panorama_only = false;
     for (int i = 3; i < argc; i++) {
         if (!std::strcmp(argv[i], "--draw-budget") && i + 1 == argc) {
             std::fprintf(stderr, "m2gpushot: --draw-budget needs a value\n");
@@ -56,10 +60,15 @@ int main(int argc, char **argv) {
         if (!std::strcmp(argv[i], "--hud-edges")) hud_edges = true;
         if (!std::strcmp(argv[i], "--stretch-backdrop")) stretch = true;
         if (!std::strcmp(argv[i], "--original-selection")) original_selection = true;
+        if (!std::strcmp(argv[i], "--panorama-original")) panorama_original = true;
+        if (!std::strcmp(argv[i], "--panorama-sweep")) panorama_sweep = true;
+        if (!std::strcmp(argv[i], "--panorama-only")) panorama_only = true;
     }
     for (int i = 3; i + 1 < argc; i += 2) {
         if (!std::strcmp(argv[i], "--hud-edges") || !std::strcmp(argv[i], "--stretch-backdrop") ||
-            !std::strcmp(argv[i], "--bench") || !std::strcmp(argv[i], "--original-selection")) { i--; continue; }
+            !std::strcmp(argv[i], "--bench") || !std::strcmp(argv[i], "--original-selection") ||
+            !std::strcmp(argv[i], "--panorama-sweep") ||
+            !std::strcmp(argv[i], "--panorama-only") || !std::strcmp(argv[i], "--panorama-original")) { i--; continue; }
         if (!std::strcmp(argv[i], "--aspect")) {
             double a = 0, b = 0;
             if (std::sscanf(argv[i + 1], "%lf:%lf", &a, &b) == 2 && b > 0) aspect = a / b;
@@ -67,11 +76,14 @@ int main(int argc, char **argv) {
         if (!std::strcmp(argv[i], "--dump")) dump_dir = argv[i + 1];
         else if (!std::strcmp(argv[i], "--every")) every = std::strtoull(argv[i + 1], nullptr, 10);
         else if (!std::strcmp(argv[i], "--dump-from")) dump_from = std::strtoull(argv[i + 1], nullptr, 10);
+        else if (!std::strcmp(argv[i], "--bench-from")) bench_from = std::strtoull(argv[i + 1], nullptr, 10);
         else if (!std::strcmp(argv[i], "--inputs")) inputs_path = argv[i + 1];
         else if (!std::strcmp(argv[i], "--nvram")) nvram_dir = argv[i + 1];
         else if (!std::strcmp(argv[i], "--scale")) scale = std::clamp(std::atoi(argv[i + 1]), 1, 4);
         else if (!std::strcmp(argv[i], "--draw-distance")) rt::GameLoop::set_draw_distance(std::atoi(argv[i + 1]));
         else if (!std::strcmp(argv[i], "--scenery-log")) scenery_log_path = argv[i + 1];
+        else if (!std::strcmp(argv[i], "--sky-log")) sky_log_path = argv[i + 1];
+        else if (!std::strcmp(argv[i], "--dump-tiles")) tile_dump_dir = argv[i + 1];
         else if (!std::strcmp(argv[i], "--draw-budget")) {
             if (!rt::parse_scenery_budget(argv[i + 1], draw_budget)) {
                 std::fprintf(stderr, "m2gpushot: --draw-budget needs 0 (Automatic) or 1..1000000\n");
@@ -81,6 +93,10 @@ int main(int argc, char **argv) {
     }
     if (!bench && (dump_dir.empty() || !every)) {
         std::fprintf(stderr, "m2gpushot: --dump DIR and --every N (or --bench) are needed\n");
+        return 2;
+    }
+    if (bench && bench_from >= frames) {
+        std::fprintf(stderr, "m2gpushot: --bench-from must be less than FRAMES\n");
         return 2;
     }
     if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -122,6 +138,10 @@ int main(int argc, char **argv) {
 
     try {
         rt::GameLoop game(dir);
+        game.board().video().panorama().original = panorama_original;
+        game.board().video().panorama().sweep = panorama_sweep;
+        game.board().video().panorama().only = panorama_only;
+        tools::SkyLog sky_log(sky_log_path);
         game.set_draw_budget(draw_budget);
         game.board().scenery()->original_selection = original_selection;
         tools::SceneryLog scenery_log(scenery_log_path);
@@ -143,17 +163,21 @@ int main(int argc, char **argv) {
             });
             double t_tile_cache = 0, t_tile_draw = 0, t_composite = 0;
             SDL_GPUFence *last = nullptr;
-            const auto t0 = clk::now();
+            auto t0 = clk::now();
             for (uint64_t f = 0; f < frames; f++) {
+                if (f == bench_from) t0 = clk::now();
                 const auto a = clk::now();
                 game.run_frame(script.at(game.board().frame()));
                 const auto b = clk::now();
                 if (game.board().frame() >= dump_from)
                     scenery_log.write(game);
+                if (game.board().frame() >= dump_from) sky_log.write(game);
                 const rt::VideoProfile &vp = game.board().video().last_profile();
-                t_tile_cache += double(vp.tile_cache) * 1e-9;
-                t_tile_draw += double(vp.tile_draw) * 1e-9;
-                t_composite += double(vp.composite) * 1e-9;
+                if (f >= bench_from) {
+                    t_tile_cache += double(vp.tile_cache) * 1e-9;
+                    t_tile_draw += double(vp.tile_draw) * 1e-9;
+                    t_composite += double(vp.composite) * 1e-9;
+                }
                 if (last) { // one frame in flight, as a window would have
                     SDL_WaitForGPUFences(dev, true, &last, 1);
                     SDL_ReleaseGPUFence(dev, last);
@@ -163,20 +187,24 @@ int main(int argc, char **argv) {
                 gpu.render(cmd, target, W, H, game.board().video(), scale);
                 last = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
                 const auto d = clk::now();
-                t_game += std::chrono::duration<double>(b - a).count();
-                t_wait += std::chrono::duration<double>(c - b).count();
-                t_cpu += std::chrono::duration<double>(d - c).count();
+                if (f >= bench_from) {
+                    t_game += std::chrono::duration<double>(b - a).count();
+                    t_wait += std::chrono::duration<double>(c - b).count();
+                    t_cpu += std::chrono::duration<double>(d - c).count();
+                }
             }
             if (last) SDL_WaitForGPUFences(dev, true, &last, 1), SDL_ReleaseGPUFence(dev, last);
             const double total = std::chrono::duration<double>(clk::now() - t0).count();
+            const uint64_t measured_frames = frames - bench_from;
             std::printf("m2gpushot: %" PRIu64 " frames in %.2f s (%.0f frames/s); per frame: game %.2f ms, "
                         "renderer CPU %.2f ms, waiting for the GPU %.2f ms\n",
-                        frames, total, double(frames) / total, t_game * 1e3 / double(frames),
-                        t_cpu * 1e3 / double(frames), t_wait * 1e3 / double(frames));
+                        measured_frames, total, double(measured_frames) / total, t_game * 1e3 / double(measured_frames),
+                        t_cpu * 1e3 / double(measured_frames), t_wait * 1e3 / double(measured_frames));
             std::printf("m2gpushot: of the game's time, CPU tilemaps per frame: decoding layers %.2f ms, "
                         "drawing them %.2f ms, composing %.2f ms\n",
-                        t_tile_cache * 1e3 / double(frames), t_tile_draw * 1e3 / double(frames),
-                        t_composite * 1e3 / double(frames));
+                        t_tile_cache * 1e3 / double(measured_frames), t_tile_draw * 1e3 / double(measured_frames),
+                        t_composite * 1e3 / double(measured_frames));
+            std::printf("m2gpushot: panorama uploads %" PRIu64 "\n", gpu.panorama_uploads());
             gpu.shutdown();
             SDL_DestroyGPUDevice(dev);
             return 0;
@@ -184,7 +212,9 @@ int main(int argc, char **argv) {
         for (uint64_t f = 0; f < frames; f++) {
             game.run_frame(script.at(game.board().frame()));
             if (game.board().frame() >= dump_from) scenery_log.write(game);
+            if (game.board().frame() >= dump_from) sky_log.write(game);
             if (game.board().frame() < dump_from || game.board().frame() % every) continue;
+            tools::dump_tiles(game, tile_dump_dir);
             SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
             gpu.render(cmd, target, W, H, game.board().video(), scale);
             SDL_GPUCopyPass *copy = SDL_BeginGPUCopyPass(cmd);
@@ -210,7 +240,7 @@ int main(int argc, char **argv) {
                 std::fclose(d);
             }
         }
-        std::printf("m2gpushot: %" PRIu64 " frames\n", frames);
+        std::printf("m2gpushot: %" PRIu64 " frames; panorama uploads %" PRIu64 "\n", frames, gpu.panorama_uploads());
     } catch (const std::exception &e) {
         std::fprintf(stderr, "m2gpushot: %s\n", e.what());
         return 1;
