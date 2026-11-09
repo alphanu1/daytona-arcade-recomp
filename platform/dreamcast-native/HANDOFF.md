@@ -237,6 +237,93 @@ check, disk); on integrate2 the same, 2,174 of 2,174 rows
 (`build/dc-native-int2.recipe`, "16 October").
 `run_hw.sh` records video only with `VIDEO=1` (the disk filled up).
 
+### 3 November: the drive board's command stream and the rumble pack (branch rumble)
+
+The bytes the original sends to the force-feedback drive board (the I/O board's byte 0x11, 01c00022), made as the
+program makes them, and played on a Dreamcast rumble pack. No gameplay state is read in a new way or written.
+
+- **The stream** (`include/drive_board.h`): the queue 502900 (256-byte ring, a zero slot is empty), write and send
+  indices 5028fe/5028ff, the last byte with a nonzero type 5028fd (the dedup) and the signed counter 5028fc (grass
+  pulse, kerb hold-off), zero from power-on and never reset (1ab44 clears only ring and indices, at boot); the sender
+  1abbc, one byte an iteration after the object chain; the race update 1a470, a priority chain over the player's
+  contact side +27d, crash timer +c8, input inhibit +d4/+d5 (the `lda 0xff90` compare never matches: only direction
+  +1 queues 0x27), wall spin +ec and scrape +99/+ed, front wheels' masks +1ba/+1bc (kerb bit 8, grass bits 2-3, the
+  0x43/0x33 pulse 20 on, 13 off) and the speed index +18 (0x27..0x20 below 64, then 0x38 | (v - 63) >> 6: the steps
+  are at 63 + 64k, 0x38 again from 575); 3a58's 0x70 | 3b7c[course] | 3b80[transmission], 0x07, 0x10 in phase 21; the
+  fixed bytes of 197c (2: 01), 1e5c (6: 01), 2b0c (17: 03), 3008 (19: 07), 4328 (23: 09), 4110 (25: 09), 4b40 (29: 08).
+  The race calls it once a tick, out of line (`race_scene.h` nm_race_scene_drive, after nm_race_start_signal, before
+  the movement: entry 10 of the chain, between the start signal 504900 and the player 504e00), through
+  `nm_race_scene_t.drive` (the last member; bound after the start, NULL in the demo, the attract and every host tool
+  that does not ask for it). Phase 21's and 23's bytes are pushed there too: nothing else pushes in those iterations.
+- **The console** (`code/drive_board.c`, outside the LTO unit, -Os): one queue from power-on; `nm_drive_stream_phase`
+  where each phase handler runs and `nm_drive_stream_ticks` once an iteration in every scene: the attract's entry
+  (phase 2 and the scene start), the cinematic, the V.R. demo (6, its ticks, 8; a build without the demo counts its
+  836), the title (its ticks, 10, the credit's), the game start (12, 17), the select, the race entry (19), the race, the
+  podium, the results (25 in `result_field_tick`, out of `nm_results_update`'s fingerprinted body), phase 29 and the
+  name entry. `test_title_mode.py`, `test_select_mode.py`, `test_name_mode.py`, `test_results_phase.py`,
+  `test_track_surface.py` and `test_inspect_pause.py` stub the calls and check one send an iteration against the
+  counter. At the run's end: "Native drive board: N bytes sent (FNV-1a H); rumble pack commands M".
+- **The rumble player** (`include/rumble.h`, ours): 0x5-/0x6- level n a jolt of power min(n, 7), at least 1, for
+  NATIVE_RUMBLE_JOLT_TICKS (default 9, 150 ms); 0x4- n the continuous level min(n, 7); 0x1-..0x3- the level 0; 0x0-,
+  0x7- (and any other type) stop everything; the inspector's pause too. Output max(jolt, level), to every port with a
+  pack until that pack has taken it (`purupuru_rumble_raw`: cont 1, motor 1, fpow, freq NATIVE_RUMBLE_FREQ default 26,
+  inc 0; power 0 the stop word, motor 1 only). Not through enDjinn's rumble queue: KOS refuses a frame (MAPLE_EAGAIN)
+  while the pack's previous one is unanswered and enDjinn drops a refused effect, so a lost stop could leave a pack
+  running; here each port keeps the power its pack took and the next tick tries again, and a port without a pack
+  counts as standing (a pack plugged in later gets the power). At the run's end the stop is tried until every pack
+  took it (10 tries, 200 ms); the end line counts the refusals. NATIVE_RUMBLE=0 removes the player (ELF suffix -norumble), the stream stays. `tests/test_rumble.c`
+  (make check, CTest `native_rumble`): 287 checks of the player and of the queue's rules.
+- **The check** (`tests/test_drive_lockstep.py`; recipe step `drive_lockstep`; CTest `native_drive_lockstep`, cache
+  variable NATIVE_DRIVE_TEST_TRACES, 77 without traces): `m2segment --trace-drive` (`tools/trace_drive.hpp`) writes each
+  byte the original wrote with the 5010b0 of its iteration (taken at the call after 1abbc's entry; a byte outside the
+  sender is "direct": power-on's 0xff of 1bf08); `trace_attract_native` and `trace_race_native` take `--drive` and
+  carry the queue in the chain state (`tests/drive_trace.h`, `tests/game_chain.h`); the test chains them as
+  test_games_lockstep.py does, from power-on through every game, the last game's name entry and the attract after it to
+  the run's last iteration. 20 runs (games-A..J, inputs-damage-A, C, E..H, inputs-manual, inputs-advanced-finish,
+  inputs-expert-finish, inputs-advanced-timeout): every byte the original sent, 3,337 bytes in 28 games and their
+  attracts, at the same iteration, 0 differing; the recipe step runs six of them (games-C, games-J, inputs-damage-E,
+  inputs-manual, inputs-advanced-finish, inputs-expert-finish: 1,366 bytes). The comparison catches what it should: the
+  inhibit compare changed (0x0190 to 0x0191) loses damage-E's 0x27 at 3531; the last byte not carried into games-C's
+  second race adds its grid's 0x27 at 10129. About 6 s for the seven runs' harnesses; each reference run 1-3 minutes
+  and 80-240 MB of race trace (deleted after use).
+- **A cold race entry** (`trace_race_native --drive` without `--frontend`, and an AUTO_START=1 console build: stats,
+  controller): the race starts with an empty queue and the cold start's contact side 0, so tick 0 queues 0x64 where
+  the original (side from the attract's pool) queues 0x27; the rest of the fast race is the original's (114 of 115
+  bytes). The stats ELF should print "Native drive board: 114 bytes sent (FNV-1a 09cd968d)" (the harness: "drive
+  board: 114 bytes sent (FNV-1a 09cd968d) before phase 29's iteration"; the scripted run ends there).
+- **Size and layout** (make check of the stats and play ELFs: 81 PASS lines, the base's 80 and the rumble check's, and
+  the 5 known FAIL lines; hot layout 160 of 160 in all five benchmark ELFs): .text +1,792 bytes (stats 841,732 ->
+  843,524, play 849,892 -> 851,684), under the 8 KiB step of "Where the statics sit" (31 October) with 252 bytes to
+  spare in stats, 284 in play, 316 in stats-attract. .rodata, .data and .bss are build/late.recipe's symbol for symbol
+  (from a worktree path of the same length, below): the stream adds no initialised data and no .rodata (the end line's
+  text in .text, `-fno-tree-switch-conversion` for drive_board.o, 3b7c/3b80 as arithmetic), and drive_board.o's .bss
+  goes last in .bss, in the padding before the heap (`@bss_last` in config/hot_layout.tsv, tools/hot_layout.py). The
+  first version (a17b725) moved .data and .bss by 256 bytes: its .rodata grew 252. Once the unit grew, GCC stopped
+  inlining `nm_spin_smoke_tick` into the stats ELF's practice_update (a 2,192-byte partial outline, past the step, the
+  heap budget failed): it is always_inline now (car_effects.h); pinning nm_spin_smoke_source too outlined
+  nm_spin_smoke_step instead, so that stays GCC's.
+- **The checkout's path is in the layout.** model_submission.h's and SH4ZAM's file:line strings (29 in an ELF) hold the
+  worktree's absolute path, so a path two characters longer gives .rodata 116-128 bytes more and moves .data and .bss
+  with it (`dc-native-rumble.wt` against `dc-native-late.wt`; also why the offer branch's ELFs had 17 data symbols 8
+  bytes off, 31 October). Compare layouts only between builds from paths of the same length; a -fmacro-prefix-map would
+  end it but moves every static once.
+- **Which enDjinn.** build/late.recipe and build/offer3.recipe were built against ~/projects/dreamcast/enDJinn, which
+  has been on feature/vmu-save since 25 October (8cccf34 plus runtime FSAA and VMU saves, without 725f8b1's late-frame
+  pacing and hold-frame); the offer branch pins 725f8b1 (scripts/fetch_endjinn.sh there). So the hardware numbers of
+  31 October are of that enDjinn, not of the pin. This branch's final ELFs use the same checkout as the reference.
+- **Hardware, 4 November** (recipes/FULL_COURSE_BENCHMARKS.md): checkpoints 0 differing on all three courses; late
+  frames Beginner 1 (tick 4594), Advanced 0, Expert 1 (tick 3543), attract 0, against the reference's 2, 0, 0, 0. The
+  stream's line as on the host (Beginner 114 bytes, 09cd968d), 86, 102 and 150 pack commands, none refused. Expert's
+  ticks 3543-3545 are the frame late-frames brought just under: the reference ELF ran 0 late the same evening, every
+  build of this branch 1 (the first version twice, the statics fixed, the final). Its race updater mean is 80 us lower
+  and registration 53 us higher (their sum 27 us lower), so the stream costs nothing measurable; the non-hot code after
+  it, placed by GCC, decides that frame. Not pursued: placing code for one marginal frame.
+- **Not done.** The pack's feel: frequency 26 and the 9-tick jolt are guesses to try. The test mode: the original reboots
+  after it (0xff, ring cleared, last and counter kept); the native settings screen leaves the queue as it is. The B
+  session reset of a race (native only) starts its race like a cold entry (0x64 on its first tick: a jolt). The drive
+  board's own meaning of the types and of the 0x0- and 0x7- bytes stays unknown (only its program, EPR-16488, or a
+  cabinet can tell).
+
 ### 31 October: the last late frames (branch late-frames)
 
 - **Frame trace** (`NATIVE_DIAG_FRAME_TRACE=1`, needs `NATIVE_DIAG_DROP_LOG=1`; `include/frame_trace.h`,

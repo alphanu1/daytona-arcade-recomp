@@ -71,29 +71,39 @@ static int nm_settings_mode_start(void) { ++settings_starts;return 1; } /* gamep
 static enj_mode_t *active;
 static void enj_mode_set(enj_mode_t *mode) { active=mode; }
 static void enj_state_flag_shutdown(void *unused) { (void)unused;++shutdowns; }
+/* drive_board.h, the console's stream (code/drive_board.c): the iterations sent and the phase bytes pushed. */
+static unsigned drive_ticks,drive_phases[32];
+static void nm_drive_stream_ticks(unsigned count) { drive_ticks+=count; }
+static void nm_drive_stream_phase(unsigned phase) { assert(phase<32);++drive_phases[phase]; }
 '''
 checks=r'''
 static void tick_frames(unsigned n) { for(unsigned i=0;i<n;++i) { now_us+=17384;active->mode_updater(NULL); } }
 int main(void) {
     /* Phase 2: advertisement music (or the fade), engine off, then the cinematic. */
     assert(nm_attract_mode_start() && attracts==1 && adverts==1 && settles==1 && engine_offs==1 && counter==11);
+    /* The drive board: phase 2's 0x01, its iteration and the scene start's (phase 3's first) sent. */
+    assert(drive_phases[2]==1 && drive_ticks==2);
+    unsigned drive=drive_ticks;
     assert(nm_title_mode_start());assert(loads==1 && active && settles==2 && adverts==1 && engine_offs==2); /* phase 8 */
     now_us=1000;active->mode_updater(NULL);assert(queued==1 && !restarts);
     tick_frames(1);assert(queued==3);
     controller.button.START=ENJ_BUTTON_DOWN_THIS_FRAME;active->mode_updater(NULL);
     assert(releases==1 && restarts==1 && !shutdowns && select_counter==11+1+1);
+    assert(drive_ticks-drive==1+1); /* one title tick and the credit's iteration */
     controller.button.START=0;controller.button.A=ENJ_BUTTON_DOWN_THIS_FRAME;
     assert(nm_title_mode_start());now_us+=17384;active->mode_updater(NULL);assert(releases==2 && restarts==2 && !shutdowns);
     controller.button.A=0;
     /* 386 ticks, then phase 10 and phase 2: the counter counts them. */
-    assert(nm_title_mode_start());now_us=5;active->mode_updater(NULL);
+    assert(nm_title_mode_start());now_us=5;active->mode_updater(NULL);drive=drive_ticks;
     tick_frames(385);assert(attracts==1);
     tick_frames(1);assert(attracts==2 && releases==3 && counter==11+386+1+1 && adverts==2);
+    assert(drive_ticks-drive==386+1+2 && drive_phases[2]==2); /* phases 9, 10, then 2 and the scene start */
     /* Still loading at the last tick: the title goes on (no iteration counted), then phase 2. */
-    assert(nm_title_mode_start());now_us=5;active->mode_updater(NULL);loading=1;
+    assert(nm_title_mode_start());now_us=5;active->mode_updater(NULL);loading=1;drive=drive_ticks;
     tick_frames(386);assert(attracts==2 && releases==3);
     const unsigned before=queued;tick_frames(5);assert(attracts==2 && queued>before+5*387 && counter==11+386+1+1);
     loading=0;tick_frames(1);assert(attracts==3 && releases==4 && counter==11+2*(386+1+1) && adverts==3);
+    assert(drive_ticks-drive==386+1+2); /* the held frames send nothing */
     /* A credit while it loads: the rest of the load after the title's release, then the select. */
     assert(nm_title_mode_start());now_us=5;active->mode_updater(NULL);loading=1;
     controller.button.START=ENJ_BUTTON_DOWN_THIS_FRAME;active->mode_updater(NULL);controller.button.START=0;

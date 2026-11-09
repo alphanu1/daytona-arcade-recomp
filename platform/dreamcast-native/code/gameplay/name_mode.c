@@ -9,6 +9,7 @@
 #include "practice.h"
 #include "audio/sound.h"
 #include "game_save.h"
+#include "drive_board.h"
 #include "name_data.h"
 #include "name_entry_data.h"
 #include "labels/name_label_data.h"
@@ -64,6 +65,7 @@ static void update(void *unused) {
     }
     while(remainder_us>=NM_PRACTICE_TICK_US) {
         remainder_us-=NM_PRACTICE_TICK_US;++frame;
+        nm_drive_stream_ticks(1); /* a phase 30 iteration */
         if(!nm_race_postresult_step(&post,notification)) { *failure=1;return; }
         name_command(post.audio_command);
         if(post.return_to_attract || !(post.name_flags&UINT32_C(0x80000000))) break;
@@ -106,6 +108,7 @@ int nm_name_mode_start(const char *root,nm_drive_params_t *params,
     frame=commands=remainder_us=accept_pending=0;committed=0;frame_clock=(nm_frame_clock_t){0};
     completion_phase=draw_phase=completion_tick=0;
     post=(nm_race_postresult_t){.phase=29};
+    nm_drive_stream_phase(29);nm_drive_stream_ticks(1); /* 4b40: the drive board's 0x08, phase 29's iteration */
     if(!nm_race_postresult_step(&post,notification)) return 0;
     name_command(post.audio_command);
     if(post.start_name) {

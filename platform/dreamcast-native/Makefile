@@ -43,6 +43,11 @@ $(addprefix $(ENJ_BUILDDIR)/code/audio/,sfx.o race_sound.o idle_wait.o): DEFINES
 # The memory dispatchers (code/nm_mem.c, include/nm_mem.h): SH4ZAM's inline forms without their asserts (the
 # dispatcher establishes the alignment and size each form requires before calling it).
 $(ENJ_BUILDDIR)/code/nm_mem.o: DEFINES += -DNDEBUG
+# The drive board's stream and the rumble pack's player (include/drive_board.h, rumble.h): outside the LTO unit too, a
+# call an iteration from the scenes, for size (-Os after ENJ_CFLAGS' -O3): .text has little room before the 8 KiB
+# step that moves the statics (docs/NEXT_LLM_HANDOFF.md, 31 October, "Where the statics sit"). No switch tables: they
+# would go to .rodata, whose end places .data and .bss (code/drive_board.c).
+$(ENJ_BUILDDIR)/code/drive_board.o: DEFINES += -fno-lto -Os -fno-tree-switch-conversion
 # The scene loader (scene_loader.c: the attract's load in the title's frames) too.
 $(ENJ_BUILDDIR)/code/scene_loader.o: DEFINES += -fno-lto
 # The props (props.c, props_scene.c: cones) and Expert's world actors (expert_actors.c) too.
@@ -130,6 +135,9 @@ endif
 	  -DNM_STEER_CURVE=$(NATIVE_STEER_CURVE) -DNM_STEER_DEADZONE=$(NATIVE_STEER_DEADZONE) tests/test_steer_curve.c -lm \
 	  -o $(ENJ_BUILDDIR)/steer-curve-check
 	$(ENJ_BUILDDIR)/steer-curve-check
+	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all -Iinclude \
+	  -DNM_RUMBLE_JOLT_TICKS=$(NATIVE_RUMBLE_JOLT_TICKS) tests/test_rumble.c -o $(ENJ_BUILDDIR)/rumble-check
+	$(ENJ_BUILDDIR)/rumble-check
 	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -Iinclude tests/test_race_sound.c -lm -o $(ENJ_BUILDDIR)/race-sound-check
 	$(ENJ_BUILDDIR)/race-sound-check
 	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all -Iinclude tests/test_game_save.c \

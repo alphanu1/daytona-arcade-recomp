@@ -426,6 +426,14 @@ Games one after another (30 October; the step games_lockstep, no output):
   tests/test_games_lockstep.py: for each game of a run, from power-on, trace_attract_native (--enter, --credit, --leave),
   trace_race_native (--enter, --frontend, --leave), compare_race_trace --require-equal, every field of every car and
   test_attract_lockstep.py                             (fails on any difference; tests/game_chain.h)
+
+The drive board's command stream (3 November; the step drive_lockstep, no output):
+  M N inputs/X.txt --trace-frontend --trace-race --trace-attract --trace-drive -> frontend-X.trace, race-X.trace,
+                                                       drive-X.trace (deleted after use), X: games-C, games-J,
+                                                       inputs-damage-E, inputs-manual, inputs-advanced-finish,
+                                                       inputs-expert-finish
+  tests/test_drive_lockstep.py: the chain of test_games_lockstep.py with --drive (tests/drive_trace.h), every byte the
+  original sent at its iteration 5010b0, power-on's 0xff to the last iteration run (fails on any difference)
 ```
 
 ## Where the historical intermediates differ

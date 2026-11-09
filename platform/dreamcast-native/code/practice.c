@@ -305,6 +305,7 @@ static int practice_reset_session(const nm_player_t *previous) {
 #ifdef NM_RACE_VIEW_DATA
     practice.race.view_presets=nm_race_view_presets; /* VR1..VR4 (race_view.h) */
 #endif
+    practice.race.drive=nm_drive_stream(); /* the drive board's queue from power-on (code/drive_board.c) */
     practice_view_held=practice_view_pad=practice_view_step=0;
     /* 3980[course] cars (40, 30, 20) from the 40-entry catalogue of 286fac0 rows every course shares. */
     if(practice.race.count!=practice.road.grid_count || practice.race.count>40 ||
@@ -504,6 +505,7 @@ static int practice_race_load(const char *stage) {
     const int selected=nm_select_race_state(&counter_base);
     if(!practice_reset_session(selected && practice_pool.raced ? &practice_pool.player : NULL)) goto fail;
     if(selected && !nm_frontend_race_entry(&practice.race,&practice_pool,counter_base)) goto fail;
+    nm_drive_stream_phase(19);nm_drive_stream_ticks(1); /* 3008: the drive board's 0x07, phase 19's iteration */
     stage="race initial follow-view/detail selection";
     if(!practice_race_detail() || (selected && !nm_frontend_race_guided(&practice.race,practice.intro.view,&practice_pool))) goto fail;
     stage="race presentation";
@@ -609,6 +611,7 @@ static __attribute__((noinline)) int practice_attract_update(uint32_t elapsed_us
          * is followed by the next course's cinematic. */
         if(DAYTONA_RACE_TICK_LIMIT) { nm_practice_render_release();enj_state_flag_shutdown(NULL);return 0; }
         if(practice_demo_start() || practice.failed) return 0;
+        nm_drive_stream_phase(6);nm_drive_stream_ticks(NM_ATTRACT_DEMO_ITERATIONS); /* 1e5c's 0x01; phases 6, 7, 8 */
         nm_frontend_pool_from_intro(&practice_pool,&practice.intro,&practice.road);
         nm_frontend_counter_set(practice.intro.object_clock+practice.intro.ticks+NM_ATTRACT_DEMO_ITERATIONS);
         practice_attract_course=nm_attract_next_course(practice.course);
@@ -636,6 +639,7 @@ static __attribute__((noinline)) int practice_attract_update(uint32_t elapsed_us
             practice.intro.window_action=0;
         }
         practice.state.remainder_us-=NM_PRACTICE_TICK_US;
+        if(advanced) nm_drive_stream_ticks(1);
         if(advanced && credit) {
             /* That tick was the credit's iteration (an ordinary cinematic tick); the game start and the
              * select follow (phases 12, 17, 18) with this scene's pool. */
@@ -815,6 +819,7 @@ static void practice_update(void *unused) {
      * The wall-clock interval above is a diagnostic only. */
     const uint32_t frame_us=nm_frame_ticks(&practice.frame_clock)*NM_PRACTICE_TICK_US;
     if (practice.inspect_paused) {
+        nm_drive_stream_pause(); /* the rumble pack stops (rumble.h) */
         /* Keep latching input/rendering, but don't advance or reset gameplay.
          * Refresh last_us above so resuming never catches up paused time.
          * A partial enqueue failure is released by the NEXT updater. */
@@ -1004,7 +1009,7 @@ static void practice_update(void *unused) {
                     (unsigned long)practice.intro.ticks,(unsigned long)practice.intro.collision_pairs,
                     (unsigned long)practice.intro.collision_responses);
             }
-            if(advanced) { practice.race.phase=practice.podium.phase;++practice.results.podium_ticks; }
+            if(advanced) { practice.race.phase=practice.podium.phase;++practice.results.podium_ticks;nm_drive_stream_ticks(1); }
             /* bc00 row 4 (timer 10): bit 3, bc60 queues 9e2d4f through 19bf4 (no gate). */
             if(advanced && practice.podium.phase==28 && practice.podium.timer==10) nm_sound_command(UINT32_C(0x9e2d4f));
 #ifdef NATIVE_RACE_CHECKPOINTS
@@ -1229,6 +1234,7 @@ static void practice_update(void *unused) {
                     &practice.race.cars[owner].car,&practice.race.cars[0].car,practice.race.view);
             }
             if(advanced) practice_hud_tick(); /* HUD: once per gameplay tick */
+            if(advanced) nm_drive_stream_ticks(1); /* 1abbc after the chain (drive_board.h) */
         }
 #ifdef NATIVE_RACE_CHECKPOINTS
         if(advanced) {
@@ -2078,6 +2084,7 @@ static void practice_demo_end(void) {
     }
     nm_frontend_pool_from_race(&practice_pool,&practice.race,&practice.intro.cells);
     nm_attract_2d_off();
+    nm_drive_stream_ticks(1); /* phase 8's iteration */
     nm_frontend_counter_set(practice_demo_counter-1u+NM_ATTRACT_DEMO_ITERATIONS); /* phases 6, 7 and 8 */
     practice_attract_course=nm_attract_next_course(practice.course);
     nm_practice_render_release();
@@ -2109,6 +2116,7 @@ static __attribute__((noinline)) int practice_demo_tick(int credit) {
     const unsigned owner=practice.race.shared.inhibit_owner<practice.race.count ? practice.race.shared.inhibit_owner : 0u;
     if(!nm_spin_smoke_tick(practice.math,&practice.spin_smoke,practice.race.active_phase,
         &practice.race.cars[owner].car,&practice.race.cars[0].car,practice.race.view)) { practice_reject_step="spin smoke";return 0; }
+    nm_drive_stream_ticks(1);
     return 1;
 }
 static void practice_demo_update(void *unused) {
@@ -2191,6 +2199,7 @@ static int practice_demo_start(void) {
     stage=nm_demo_view_start(&practice.race,&practice.intro,practice.math,&practice.scenery,&practice_cameras,&practice_pool);
     if(stage) goto fail;
     nm_attract_2d_demo(6,practice_demo_counter);
+    nm_drive_stream_phase(6);nm_drive_stream_ticks(1); /* 1e5c: the drive board's 0x01, phase 6's iteration */
     practice.attract_active=0;practice.race_bodies=0;practice_view_held=0;
     nm_spin_smoke_reset(&practice.spin_smoke);
     NM_COPY(&practice.state.car,&practice.race.cars[0].car);practice.state.ticks=0;
@@ -2268,6 +2277,7 @@ done:
     enj_render_post_callback_set(stage_trace_mark,(void *)"TRACE scene finished (frame handed to the PVR)");
 #endif
     enj_state_run();
+    nm_drive_stream_end();
     nm_sound_shutdown();
     nm_sample_finish(root);
     nm_title_render_release();

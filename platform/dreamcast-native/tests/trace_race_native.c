@@ -116,6 +116,14 @@ static uint32_t bits(float value) { uint32_t out;memcpy(&out,&value,4);return ou
  * runs one iteration per F row with that row's inputs. Out: the carried pool, the chosen course and
  * transmission, and 5010b0 of the race's phase20 tick (two iterations after the select's last). */
 static nm_intro_scene_t frontend_attract;
+/* --drive (tests/drive_trace.h): the drive board's queue, from --enter's state or, with the front end from power-on,
+ * from power-on; its bytes of the iterations run to the file, from drive_first. Run with --frontend only. */
+static nm_drive_run_t drive;
+static FILE *drive_out;
+static uint32_t drive_first;
+static int drive_on;          /* the stream runs: with --frontend, or --drive from a cold race entry */
+static uint32_t drive_before_29; /* the bytes sent before phase 29's iteration (a scripted console race ends there) */
+static uint32_t drive_hash_29;
 /* entered: the attract ran in trace_attract_native (--enter): the pool holds what the game start left and the select
  * starts after the credit's iteration ENTERED_CREDIT. */
 static int frontend_from_trace(const char *path,nm_entity_pool_t *pool,unsigned *course,unsigned *transmission,
@@ -143,6 +151,12 @@ static int frontend_from_trace(const char *path,nm_entity_pool_t *pool,unsigned 
             if(!ok || !nm_frontend_game_start(&frontend_attract,math,&contact,&road,paths,pool)) {
                 fprintf(stderr,"front end: %s refused\n",ok ? "game start" : "attract");break;
             }
+            /* The drive board from power-on: 1bf08's 0xff, the loop's 0x01 (197c, phase 2 is iteration 2), the
+             * credit's 0x03 (2b0c, phase 17, two iterations after it). */
+            if(drive_out) fputs("D b0=0 byte=ff direct\n",drive_out);
+            nm_drive_run_phase(&drive,drive_out,2,2);
+            nm_drive_run_to(&drive,drive_out,(uint32_t)start);
+            nm_drive_run_phase(&drive,drive_out,(uint32_t)start+2u,17);
             nm_select_enter(&select);counter=(uint32_t)start+2u;phase=18;
         } else if(active==12 || active==17) continue; /* nm_frontend_game_start took them */
         else if(active==18) {
@@ -495,6 +509,10 @@ int main(int argc,char **argv) {
      *                             The trace is that run's whole front-end trace; --course must be the course chosen.
      *   --leave NEW_STATE         after the run, through phase 29: what the game leaves (tests/game_chain.h), for
      *                             trace_attract_native --enter. Without --enter: the pool from power-on.
+     *   --drive NEW_FILE          with --frontend: the drive board's bytes of every iteration run (tests/drive_trace.h,
+     *                             test_drive_lockstep.py): the select's, phase 19's 0x07 (3008), the race's (1a470,
+     *                             3a58 in phase 21, 4328), the results' 0x09 (4110), phase 29's 0x08 (4b40) and a
+     *                             name entry's iterations; the queue from --enter's state (or power-on) into --leave's.
      *   --transmission manual|automatic  the transmission 501464 the race was selected with, as a
      *                             NATIVE_TRANSMISSION build supplies it: the grid's body variant
      *                             (e5ac), the player's gear rule (d89c) and the 1210c field get it,
@@ -527,6 +545,9 @@ int main(int argc,char **argv) {
         else if(!strcmp(argv[argc-2],"--frontend")) frontend_file=argv[argc-1];
         else if(!strcmp(argv[argc-2],"--enter")) enter_file=argv[argc-1];
         else if(!strcmp(argv[argc-2],"--leave")) leave_file=argv[argc-1];
+        else if(!strcmp(argv[argc-2],"--drive")) {
+            if(!(drive_out=nm_drive_run_open(argv[argc-1]))) { fprintf(stderr,"cannot create new drive file %s\n",argv[argc-1]);return 2; }
+        }
         else if(!strcmp(argv[argc-2],"--counter-base"))
             counter_base=strcmp(argv[argc-1],"auto") ? (uint32_t)strtoul(argv[argc-1],NULL,10) : UINT32_MAX;
         else if(!strcmp(argv[argc-2],"--course")) {
@@ -675,7 +696,11 @@ int main(int argc,char **argv) {
     if(enter_file) {
         if(!frontend_file || !nm_chain_read(enter_file,&chain)) { fputs("--enter needs --frontend and a state file\n",stderr);return 2; }
         frontend_pool=chain.pool;record_notification=chain.notification;
+        /* trace_attract_native ran the credit's iteration and the game start's two (phase 17 pushed 0x03). */
+        drive=chain.drive;drive_first=chain.counter+3u;
+        if(drive.through!=chain.counter+2u) { fputs("--enter: the drive board's queue is not the game start's\n",stderr);return 2; }
     }
+    drive_on=frontend_file!=NULL || drive_out!=NULL;
     if(frontend_file) {
         unsigned chosen_course=0,chosen=0;
         if(carry || seeded || !frontend_from_trace(frontend_file,&frontend_pool,&chosen_course,&chosen,&frontend_counter,
@@ -730,6 +755,14 @@ int main(int argc,char **argv) {
     race.order.lap=(int8_t)leading_lap;
     race.counter_base=counter_base; /* --counter-base (default the course-0 references' 2368) */
     if(frontend_file && !nm_frontend_race_entry(&race,&frontend_pool,frontend_counter)) return 1;
+    if(drive_on) {
+        /* The select's iterations, then phase 19 (3008: 0x07), the iteration before the race's tick 0. A cold race
+         * entry (no --frontend) starts there with an empty queue, as a console build that boots into the race
+         * (AUTO_START=1): its stats ELF prints the same count and hash before phase 29 (code/drive_board.c). */
+        if(!frontend_file) { drive.through=race.counter_base-2u;drive_first=race.counter_base-1u; }
+        nm_drive_run_phase(&drive,drive_out,race.counter_base-1u,19);
+        race.drive=&drive.queue;
+    }
 
     if(wheel_phase>=0) race.cars[0].car.wheel_phase[0]=race.cars[0].car.wheel_phase[1]=nm_yaw_angle((uint32_t)wheel_phase);
     if(seeded) {
@@ -851,6 +884,7 @@ int main(int argc,char **argv) {
             printf("native scene step rejected tick %ld (%s, car %u)\n",tick+1,nm_race_stage_name(race.stage),
                 (unsigned)race.shared.updating);status=1;break;
         }
+        if(drive_on) nm_drive_run_to(&drive,drive_out,race.counter_base+(uint32_t)tick); /* 1abbc, after the chain */
         if(hints_out) { /* The streamed phrases' prefetch hints of this tick (code/audio/race_sound.c). */
             uint32_t keys[8];
             const unsigned n=nm_race_sound_hints(road.awards,race.award.counter,
@@ -967,6 +1001,7 @@ int main(int argc,char **argv) {
         long row=tick;
         for(;row<available && !status;++tick,row=next_logic_row(rows,row,available)) {
             const reference_row_t *r=rows+row;
+            const uint32_t drive_b0=race.counter_base+(uint32_t)tick; /* this iteration's 5010b0 */
             if(race.phase==27 && !podium.phase) podium.phase=27;
             const unsigned results_phase=race.phase;
             if(podium.phase) {
@@ -1015,6 +1050,7 @@ int main(int argc,char **argv) {
                         race.cars[0].car.lap.best_ticks);
                 }
                 podium_cars=0;
+                if(drive_on) nm_drive_board_phase(&drive.queue,25); /* 4110: 0x09 at the handler's start */
                 result_timer=nm_race_timeout_ticks(result_penalty);race.cars[0].car.speed_index=0;
                 race.active_phase=25;race.phase=26;phase_timer=(int32_t)result_timer;
             } else if(race.phase==26) {
@@ -1051,8 +1087,19 @@ int main(int argc,char **argv) {
              * this tick already). */
             if(clock_out && field_live && !podium.phase) clock_row(tick+1,r->frame,0,(uint32_t)++results_ticks,0);
             write_rows(out,tick+1,r->frame,&controls);
+            if(drive_on) nm_drive_run_to(&drive,drive_out,drive_b0);
         }
     }
+    /* The game's end: phase 29's iteration (4b40: 0x08), then a name entry's, whose count is the player's (the
+     * front-end trace's row that selects phase 2, as --leave takes it). */
+    drive_before_29=drive.sent;drive_hash_29=drive.hash;
+    if(drive_on && !status && race.phase==29) {
+        const uint32_t phase29=race.counter_base+(uint32_t)tick;
+        nm_drive_run_phase(&drive,drive_out,phase29,29);
+        const uint32_t over=frontend_file ? frontend_game_over(frontend_file,phase29) : 0;
+        if(over>phase29) nm_drive_run_to(&drive,drive_out,over);
+    }
+    if(!nm_drive_run_close(drive_out,drive_first,drive.through)) { fputs("cannot write the drive board's bytes\n",stderr);return 2; }
     if(checkpoints) {
         fprintf(checkpoints,"Native checkpoints: rows=%u ticks=%ld\n",checkpoint_rows,
             tick);
@@ -1107,6 +1154,8 @@ int main(int argc,char **argv) {
             printf("--leave: the game ends at 5010b0 %u here, %u in the trace\n",(unsigned)chain.counter,(unsigned)over);return 1;
         }
         if(over) chain.counter=over;
+        chain.drive=drive;
+        if(frontend_file && drive.through!=chain.counter) { fputs("--leave: the drive board's queue is not the game's end\n",stderr);return 1; }
         nm_frontend_pool_from_game(&chain.pool,&race,&presentation.cells,left_podium ? &presentation : NULL);
         if(!nm_chain_write(leave_file,&chain)) { fputs("cannot write --leave (it must be new)\n",stderr);return 2; }
     }
@@ -1123,6 +1172,8 @@ int main(int argc,char **argv) {
         argv[6],tick,race.phase,race.active_phase,race.award.remaining,race.shared.clock,
         race.cars[0].car.lap.lap,race.cars[0].rank,commands,command_hash,status);
     if(result_commands) printf("results field: commands=%" PRIu32 " hash=%08" PRIx32 "\n",result_commands,result_hash);
+    if(drive_on) printf("drive board: %" PRIu32 " bytes sent (FNV-1a %08" PRIx32 ") before phase 29's iteration, %" PRIu32
+        " through iteration %" PRIu32 "\n",drive_before_29,drive_hash_29,drive.sent,drive.through);
     if(counter_mismatch) printf("slot counter: %u race ticks where 5010b0 != %u+tick\n",counter_mismatch,(unsigned)race.counter_base);
     if(idle) {
         /* Same values and wording as the end-of-run lines of code/practice.c. */

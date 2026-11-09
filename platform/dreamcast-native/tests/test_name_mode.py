@@ -49,6 +49,10 @@ static int nm_attract_mode_start(void) { ++title_starts;return 1; } /* phase 29/
 static uint32_t frontend_counter;
 static uint32_t nm_frontend_counter(void) { return frontend_counter; }
 static void nm_frontend_counter_set(uint32_t counter) { frontend_counter=counter; }
+/* drive_board.h, the console's stream (code/drive_board.c): the iterations sent and the phase bytes pushed. */
+static unsigned drive_ticks,drive_phases[32];
+static void nm_drive_stream_ticks(unsigned count) { drive_ticks+=count; }
+static void nm_drive_stream_phase(unsigned phase) { assert(phase<32);++drive_phases[phase]; }
 /* audio/sound.h */
 static void nm_sound_command(uint32_t command) { (void)command; }
 static void nm_sound_update(void) {}
@@ -97,6 +101,7 @@ int main(void) {
     int failed=0;nm_race_record_t record={.rank=2,.time_copy=1237,.name=0xffffffff};
     for(unsigned i=0;i<40;++i) nm_name_rules.rules[i].name=0xffffff;
     assert(nm_name_mode_start("/pc/",&params,1,&record,467,1,&failed));
+    assert(drive_phases[29]==1 && drive_ticks==1); /* 4b40's 0x08, phase 29's iteration */
     assert(label_rank==2 && label_total==1237 && label_best==467 && label_completed==1);
     step(0);assert(!failed && pending && !committed);
     for(unsigned i=0;i<32;++i) step(1);
@@ -113,6 +118,7 @@ int main(void) {
     for(unsigned i=2;i<193;++i) step(1);
     assert(post.return_to_attract && !engine.flags.shut_down);
     step(0);assert(!engine.flags.shut_down && releases==1 && unloads==1 && title_starts==1 && save_requests==1);
+    assert(drive_ticks==frontend_counter); /* one send an iteration: phase 29's and each of phase 30 */
     nm_name_rules.rules[0]=(nm_name_rule_t){.name='A',.timer=64};
     for(unsigned i=0;i<4;++i) nm_name_rules.replacements[0][i]=0x444342;
     control.joyx=-127;
@@ -129,6 +135,7 @@ int main(void) {
     assert(nm_name_mode_start("/pc/",&params,0,NULL,0,0,&failed));
     step(0);assert(!engine.flags.shut_down && !failed && title_starts==2); /* No qualifying record. */
     assert(save_requests==2); /* the quit above (shut_down) requested none */
+    assert(drive_ticks==frontend_counter && drive_phases[29]==3);
     assert(nm_name_mode_start("/pc/",&params,1,&record,0,0,&failed));
     const unsigned old_releases=releases;
     labels_ok=0;step(0);

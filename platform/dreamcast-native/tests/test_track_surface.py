@@ -186,6 +186,10 @@ static int nm_practice_restart_from_title(void) {++race;return 1;}
 static int nm_title_mode_start(void) {++title;return title_ok;}
 static void nm_practice_render_release(void) {++released;}
 static void enj_state_flag_shutdown(void *unused) {(void)unused;++shutdowns;}
+/* drive_board.h, the console's stream: a counted demo pushes 1e5c's 0x01 and sends its 836 iterations. */
+static unsigned drive_ticks,drive_phases[32];
+static void nm_drive_stream_ticks(unsigned count) {drive_ticks+=count;}
+static void nm_drive_stream_phase(unsigned phase) {assert(phase<32);++drive_phases[phase];}
 static int boot(void) {const char *stage=NULL;
 ''' + boot + '''
     (void)stage;return 1;
@@ -210,7 +214,7 @@ int main(void) {
     const unsigned limit=DAYTONA_RACE_TICK_LIMIT ? DAYTONA_RACE_TICK_LIMIT : attract_tick_limit;
     practice.intro.ticks=limit-1;finite();assert(!released && !shutdowns && !title);
     practice.intro.ticks=limit;finite();assert(released==1);
-    if(DAYTONA_RACE_TICK_LIMIT) {assert(shutdowns==1 && !title);}
+    if(DAYTONA_RACE_TICK_LIMIT) {assert(shutdowns==1 && !title && !drive_ticks && !drive_phases[6]);}
     else {
         assert(!shutdowns && title==1 && counter==practice.intro.object_clock+limit+836u);
         assert(practice_attract_course==2); /* the demo's end steps the course: 0 -> 2 */
@@ -219,6 +223,7 @@ int main(void) {
         title_ok=0;finite();assert(released==4 && shutdowns==1 && title==4);
         demo_ok=1;title_ok=1;const unsigned before=demos;
         finite();assert(demos==before+1 && released==4 && title==4); /* the demo's mode follows, nothing released */
+        assert(drive_phases[6]==4 && drive_ticks==4u*836u); /* the four counted demos, the started one its own */
     }
 }
 ''')

@@ -8,6 +8,7 @@
 #include "render/ui/select_render.h"
 #include "audio/sound.h"
 #include "audio/music_select.h"
+#include "drive_board.h"
 #include <stdio.h>
 #include "nm_mem.h"
 
@@ -90,6 +91,7 @@ static void update(void *unused) {
         nm_select_output_t out;
         ++counter;
         if(!nm_select_tick(&select_state,&input,counter,&out)) { puts("FAIL: native select rejected an iteration");enj_state_flag_shutdown(NULL);return; }
+        nm_drive_stream_ticks(1);
         for(unsigned i=0;i<out.sounds;++i) nm_sound_command(out.sound[i]);
         if(select_state.phase==19) { finish();return; }
     }
@@ -104,6 +106,7 @@ int nm_select_mode_start(int scene, uint32_t credit_counter) {
     counter=credit_counter;
     if(!nm_practice_game_start(scene,credit_counter)) { puts("FAIL: native game start (phases 12/17) rejected");return 0; }
     counter+=2;            /* phases 12 and 17 */
+    nm_drive_stream_ticks(1);nm_drive_stream_phase(17);nm_drive_stream_ticks(1); /* 2b0c: the drive board's 0x03 */
     nm_select_enter(&select_state);
     wanted=0;stick_armed=1;confirm_pending=0;trigger_armed=0;previous_steer=0;
     frame_clock=(nm_frame_clock_t){0};remainder_us=0;frames=0;

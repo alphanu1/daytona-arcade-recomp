@@ -36,6 +36,9 @@ static int render_ok=1,resume;
 static uint64_t now;
 #define enj_state_get() (&engine)
 static void nm_practice_render_release(void) { ++releases; }
+/* drive_board.h: the inspector's pause stops the rumble pack (code/drive_board.c). */
+static unsigned drive_pauses;
+static void nm_drive_stream_pause(void) { ++drive_pauses; }
 static void enj_state_flag_shutdown(void *p) { (void)p; engine.flags.shut_down=1; }
 static uint64_t timer_ns_gettime64(void) { return now*1000; }
 static int nm_practice_render_enqueue(void *p) {
@@ -51,7 +54,7 @@ static void update(void *unused) {
 int main(void) {
     practice.inspect_paused=1;
     for(unsigned i=1;i<=600;++i) { now=i*17000; update(0); }
-    assert(renders==600 && !advances && !releases && practice.last_us==now);
+    assert(renders==600 && !advances && !releases && practice.last_us==now && drive_pauses==600);
     resume=1; now+=17000; update(0);
     assert(!advances && !practice.inspect_paused);
     now+=17000; update(0);
@@ -60,7 +63,7 @@ int main(void) {
     now+=17000; update(0);
     assert(practice.failed && !releases && advances==1);
     update(0); assert(releases==1 && engine.flags.shut_down);
-    assert(sound_updates==604);
+    assert(sound_updates==604 && drive_pauses==602);
 }
 '''
 with tempfile.TemporaryDirectory(prefix="daytona-inspect-pause-") as tmp:

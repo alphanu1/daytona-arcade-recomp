@@ -65,6 +65,11 @@ static int game_start_scene=-1;static uint32_t game_start_counter;
 static int nm_practice_game_start(int scene,uint32_t c) { ++game_start_calls;game_start_scene=scene;game_start_counter=c;return 1; }
 static void nm_practice_render_release(void) { ++render_releases_scene; }
 static int nm_settings_mode_start(void) { ++settings_starts;return 1; }
+/* drive_board.h, the console's stream (code/drive_board.c): the iterations sent and the phase bytes pushed. */
+static unsigned drive_ticks,drive_phases[32];
+static void nm_drive_stream_ticks(unsigned count) { drive_ticks+=count; }
+static void nm_drive_stream_phase(unsigned phase) { assert(phase<32);++drive_phases[phase]; }
+
 static unsigned race_course=99,race_transmission=99,races;
 unsigned nm_select_course_raced(unsigned chosen);
 static int nm_practice_race_from_select(unsigned course,unsigned transmission) {
@@ -85,6 +90,8 @@ int main(void) {
     /* Attract credit at 5010b0 1109 (the race_to_end run): phases 12 and 17, then the select. */
     assert(nm_select_credit(1109) && render_releases_scene==2 && game_start_calls==1 && render_loads==1 && game_starts==1 && counter==1111);
     assert(game_start_scene==NM_CREDIT_CINEMATIC && game_start_counter==1109);
+    /* The drive board: phase 12's iteration, then 17's 0x03 (2b0c) and its iteration. */
+    assert(drive_ticks==2 && drive_phases[17]==1);
     assert(select_state.phase==18 && select_state.state==0 && select_state.phase_timer==1599);
     now_us=1;active->mode_updater(NULL); /* first call: no time yet */
     frame_ticks(5);assert(select_state.state==1 && select_state.slot==0);
@@ -109,12 +116,15 @@ int main(void) {
     assert(nm_select_course_raced(1)==0 && nm_select_course_raced(0)==0 && nm_select_course_raced(2)==2);
     uint32_t base=0;
     assert(nm_select_race_state(&base) && base==counter+2);
+    assert(drive_ticks==counter-1109); /* one send an iteration, the select's to its last */
     /* Consumed: a later race (title restart) gets nothing. */
     assert(!nm_select_race_state(&base));
     /* From the title: its game start (the pool stands), timeouts: Beginner, automatic, the race's base from the counter. */
+    const unsigned drive=drive_ticks;
     assert(nm_select_mode_start(NM_CREDIT_TITLE,500) && game_start_calls==2 && game_start_scene==NM_CREDIT_TITLE && counter==502);
     now_us+=1;active->mode_updater(NULL);
     assert(frame_ticks(2000) && races==2 && race_course==0 && race_transmission==0);
+    assert(drive_ticks-drive==counter-500 && drive_phases[17]==2);
     assert(nm_select_race_state(&base) && base==counter+2);
     /* From the V.R. demo: the game start on its cars, with the credit's counter. */
     assert(nm_select_mode_start(NM_CREDIT_DEMO,700) && game_start_calls==3 && game_start_scene==NM_CREDIT_DEMO &&
