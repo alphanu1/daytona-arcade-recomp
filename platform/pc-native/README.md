@@ -107,6 +107,9 @@ untested, and the tools check what they read):
        cmake -S platform/pc-native -B build/pc -G Ninja -DCMAKE_BUILD_TYPE=Release -DDAYTONA_ASSETS=build/my-assets
        cmake --build build/pc
 
+   Make the assets first: Revision A's start camera is compiled in when its generated header is there, so after
+   adding `DAYTONA_REVA_ROM` to an asset set that was built without it, rebuild with `--clean-first`.
+
 3. Run:
 
        build/pc/daytona build/my-assets/assets-ssfar4f
