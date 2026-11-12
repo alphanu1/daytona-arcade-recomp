@@ -6,6 +6,9 @@
 #include "audio/sfx.h"
 #include "race_intent_data.h"
 #include <stdio.h>
+#ifdef DAYTONA_PC
+#include "pc_horse.h" /* the Saturn horse: no engine, no skids */
+#endif
 
 static struct {
     nm_race_sound_t last; /* race_sound.h: the last engine/slip values sent */
@@ -106,14 +109,31 @@ void nm_race_sound_hook_finish(void) {
 
 void nm_race_sound_hook_draw(nm_race_scene_t *race) {
     nm_player_t *p=&race->cars[0].car;
+#ifdef DAYTONA_PC
+    /* The Saturn's horse (APROG 0600df34): riding, the car's engine and skid routine 0602f7ea does not run
+     * (06034900 runs instead): no front smoke or rear skid sound. */
+    if(!pc_horse_riding()) {
+#endif
     play(nm_race_sound_front_smoke(&race_sound.front_smoke,p->force.trigger_count[0]));
     play(nm_race_sound_skid(race->shared.flags,p->force.trigger_count[1],p->force.grip[1]));
+#ifdef DAYTONA_PC
+    }
+#endif
     const int16_t lane=nm_race_sound_wall_lane(p);
     if(lane) p->boundary.damage.signal=lane;
 }
 
 void nm_race_sound_hook_hud(const nm_race_scene_t *race) {
     const nm_player_t *p=&race->cars[0].car;
+#ifdef DAYTONA_PC
+    /* The Saturn's horse: no engine (0602f7ea's engine commands are not sent); its slip-level command stays
+     * (06034900 sends it as the car does). The engine value off once, then nothing. */
+    if(pc_horse_riding()) {
+        if(race_sound.last.rpm!=0 && (race->shared.flags&NM_RACE_SOUND_GATE)) {
+            race_sound.last.rpm=0; play(NM_RACE_SOUND_RPM_OFF);
+        }
+    } else
+#endif
     play(nm_race_sound_rpm(&race_sound.last,race->shared.flags,p->filtered_rpm));
     play(nm_race_sound_slip(&race_sound.last,race->shared.flags,p->force.tire_angle[1]));
 }

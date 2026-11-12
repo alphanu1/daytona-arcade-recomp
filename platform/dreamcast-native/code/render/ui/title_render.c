@@ -1,5 +1,6 @@
 #include "render/ui/title_render.h"
 #include "render/materials/palette_ram.h"
+#include "render/ui/attract_2d_render.h"
 #include <enDjinn/enj_defs.h>
 #include <enDjinn/enj_enDjinn.h>
 #include <sh4zam/shz_sh4zam.h>
@@ -31,19 +32,31 @@ static void title_render(void *data) {
     for(unsigned i=0;i<sizeof(scene_quads)/sizeof(scene_quads[0]);++i) {
         const scene_quad_t *q=scene_quads+i;
         if(scene_assets[q->texture].opaque!=opaque ||
+#ifdef DAYTONA_PC
+           q->role==TITLE_PROMPT || /* PC: PRESS START BUTTON in the attract's line, not INSERT COIN(S) */
+#endif
            (q->role==TITLE_PROMPT && !current_pose.prompt) ||
            (q->role==TITLE_FOOTER && !current_pose.footer)) continue;
-        const float x=(float)q->x+(q->role==TITLE_LOGO ? current_pose.logo_x : 0);
+        float x=(float)q->x+(q->role==TITLE_LOGO ? current_pose.logo_x : 0);
+        unsigned cut=0; /* texel columns left out at the quad's left */
+#ifdef DAYTONA_PC
+        /* PC: no coins, no credit display: the footer from the copyright on (CREDIT and its count left of it). */
+        enum { TITLE_FOOTER_FROM=242 };
+        if(q->role==TITLE_FOOTER && q->x<TITLE_FOOTER_FROM) {
+            if(q->x+q->width<=TITLE_FOOTER_FROM) continue;
+            cut=TITLE_FOOTER_FROM-q->x;x+=(float)cut;
+        }
+#endif
         if(q->texture!=previous) {
             pvr_poly_hdr_t *header=pvr_dr_target();*header=headers[q->texture];pvr_dr_commit(header);
             previous=q->texture;
         }
         for(unsigned corner=0;corner<4;++corner) {
-            const unsigned dx=corner>=2 ? q->width : 0,dy=corner&1 ? 0 : q->height;
+            const unsigned dx=corner>=2 ? q->width-cut : 0,dy=corner&1 ? 0 : q->height;
             const shz_vec4_t p=shz_xmtrx_transform_vec4(shz_vec4_init(x+dx,q->y+dy,q->depth,1));
             pvr_vertex_t *v=pvr_dr_target();
             *v=(pvr_vertex_t){.flags=corner==3 ? PVR_CMD_VERTEX_EOL : PVR_CMD_VERTEX,
-                .x=p.x,.y=p.y,.z=p.z,.u=(float)(q->u+dx)/textures[q->texture].width,
+                .x=p.x,.y=p.y,.z=p.z,.u=(float)(q->u+cut+dx)/textures[q->texture].width,
                 .v=(float)(q->v+dy)/textures[q->texture].height,.argb=0xffffffff};
             pvr_dr_commit(v);
         }
@@ -75,6 +88,10 @@ int nm_title_render_enqueue(uint64_t tick) {
     current_pose=title_pose(title_motion,sizeof(title_motion)/sizeof(title_motion[0]),tick);
     enj_render_list_add(PVR_LIST_OP_POLY,title_render,(void *)(uintptr_t)1);
     enj_render_list_add(PVR_LIST_PT_POLY,title_render,NULL);
+#ifdef DAYTONA_PC
+    nm_attract_2d_title(current_pose.prompt);
+    if(!nm_attract_2d_render_enqueue()) return 0;
+#endif
     return 1;
 }
 

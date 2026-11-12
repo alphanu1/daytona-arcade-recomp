@@ -15,7 +15,7 @@ int nm_scenery_load(nm_scenery_pack_t *p, const char *path) {
     if (!file) return 0;
     uint32_t h[8]; nm_scenery_pack_t next={0};
     int ok=fread(h,1,sizeof(h),file)==sizeof(h) && h[0]==0x31564e44 &&
-        h[2]<4 && h[3]>0 && h[3]<=4097 && h[4]<=64 && h[5]<=65535 &&
+        h[2]<5 && h[3]>0 && h[3]<=4097 && h[4]<=64 && h[5]<=65535 &&
         !h[6] && !h[7] && h[1]==1684+36*h[4];
     if (ok) {
         next.storage=nm_alloc(h[1]-32);

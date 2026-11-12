@@ -8,6 +8,8 @@ void nm_hud_render_unload(void) {}
 void nm_hud_render_reset(const nm_hud_t *hud) { (void)hud; }
 void nm_hud_render_tick(const nm_hud_t *hud) { (void)hud; }
 int nm_hud_render_enqueue(int flat) { (void)flat;return 0; }
+unsigned nm_hud_render_country(void) { return 1u; }
+float nm_hud_render_mph_scale(void) { return 0.0f; }
 #else
 #include "render/ui/hud_draw.h"
 #include <enDjinn/enj_enDjinn.h>
@@ -255,6 +257,20 @@ static inline hud_record_t *put_rectangles(hud_record_t *r,const hud_span_t *s,u
         }
     }
     return r;
+#elif defined(DAYTONA_PC)
+    /* The SH4 loop below in C: the same sprite words, A = left bottom,
+     * B = left top, C = right top, D = right bottom, UVs a, b, c = uv[2], uv[1], uv[0]. */
+    for(;n;--n,++s,r+=2) {
+        const float x0=(s->x[0]+at[0])*sx,x1=(s->x[1]+at[0])*sx;
+        const float y0=(s->y[0]+at[1])*sy-NM_HUD_ROW_NUDGE,y1=(s->y[1]+at[1])*sy-NM_HUD_ROW_NUDGE;
+        r[0].word[0]=hud_eol.u;
+        r[0].f[1]=x0;r[0].f[2]=y1;r[0].f[3]=z;
+        r[0].f[4]=x0;r[0].f[5]=y0;r[0].f[6]=z;
+        r[0].f[7]=x1;r[1].f[0]=y0;r[1].f[1]=z;
+        r[1].f[2]=x1;r[1].f[3]=y1;r[1].f[4]=0.0f;
+        r[1].word[5]=s->uv[2].u;r[1].word[6]=s->uv[1].u;r[1].word[7]=s->uv[0].u;
+    }
+    return r;
 #else
     if(!n) return r;
     float x0,x1,y0,y1,t;
@@ -464,5 +480,19 @@ int nm_hud_render_enqueue(int flat) {
     if(panel_records || roll_panel_records) enj_render_list_add(PVR_LIST_TR_POLY,render_panel,NULL);
 #endif
     return 1;
+}
+unsigned nm_hud_render_country(void) {
+#ifdef NM_HUD_COUNTRY
+    return NM_HUD_COUNTRY;
+#else
+    return 1u;
+#endif
+}
+float nm_hud_render_mph_scale(void) {
+#if defined(NM_HUD_COUNTRY) && NM_HUD_COUNTRY == 0
+    return NM_HUD_MPH_SCALE;
+#else
+    return 0.0f;
+#endif
 }
 #endif

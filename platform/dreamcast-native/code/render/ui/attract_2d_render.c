@@ -6,9 +6,9 @@
 #if __has_include("attract_2d_data.h")
 #include "attract_2d.h" /* with attract_2d_data.h (NATIVE_ATTRACT_2D_DIR, local.cfg.mk): tools/prepare_attract_2d.py */
 #include "nm_mem.h"
+#include "render/ui/hud_render.h" /* nm_hud_render_country: the board's country of the packs */
 
-/* 53e59a & 1 of the reference board (the factory settings): the demo's Japanese text. */
-#define ATTRACT_2D_COUNTRY 1u
+/* The demo's text by 53e59a & 1: the country the packs were made for (hud_render.h nm_hud_render_country). */
 /* The screen's tile rows and columns (496 x 384 pixels). */
 enum { SCREEN_COLUMNS = 62, SCREEN_ROWS = 48 };
 
@@ -94,7 +94,7 @@ int nm_attract_2d_render_load(const char *root) {
 
 void nm_attract_2d_phase2(unsigned course, const nm_race_record_t *records_of_course, unsigned view) {
     stats_print();
-    nm_a2d_phase2(&layer, course, records_of_course, ATTRACT_2D_COUNTRY, view);
+    nm_a2d_phase2(&layer, course, records_of_course, nm_hud_render_country()&1u, view); /* 53e59a & 1 */
     shown = 1; stale = 1;
 }
 void nm_attract_2d_cinematic(unsigned phase, uint32_t counter, int last) {
@@ -104,6 +104,13 @@ void nm_attract_2d_demo(unsigned phase, uint32_t counter) {
     if (shown) nm_a2d_demo(&layer, phase, counter);
 }
 void nm_attract_2d_off(void) { shown = 0; }
+#ifdef DAYTONA_PC
+void nm_attract_2d_title(int prompt) {
+    static int last = -1;
+    if (!shown || prompt != last) { nm_a2d_title(&layer, prompt); stale = 1; }
+    last = prompt; shown = 1;
+}
+#endif
 
 static inline float screen_x(float x) { return x * (640.0f / 496.0f) * ENJ_XSCALE; }
 static inline float screen_y(float y) { return y * (480.0f / 384.0f); }
@@ -266,5 +273,8 @@ void nm_attract_2d_phase2(unsigned course, const nm_race_record_t *records, unsi
 void nm_attract_2d_cinematic(unsigned phase, uint32_t counter, int last) { (void)phase; (void)counter; (void)last; }
 void nm_attract_2d_demo(unsigned phase, uint32_t counter) { (void)phase; (void)counter; }
 void nm_attract_2d_off(void) {}
+#ifdef DAYTONA_PC
+void nm_attract_2d_title(int prompt) { (void)prompt; }
+#endif
 int nm_attract_2d_render_enqueue(void) { return 1; }
 #endif

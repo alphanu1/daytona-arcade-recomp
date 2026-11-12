@@ -3,13 +3,19 @@
 #include "gameplay/select_mode.h"
 #include "gameplay/settings_mode.h"
 #include "select.h"
+#include "course_assets.h"
 #include "practice.h"
 #include "render/scene/practice.h"
 #include "render/ui/select_render.h"
 #include "audio/sound.h"
 #include "audio/music_select.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include "nm_mem.h"
+#ifdef DAYTONA_PC
+#include "pc_saturn_menu.h"
+#include "gameplay/title_mode.h"
+#endif
 
 #ifndef NATIVE_COURSES
 #define NATIVE_COURSES 7u /* every course: Beginner 0, Expert 1, Advanced 2 */
@@ -35,6 +41,7 @@ uint32_t nm_frontend_counter(void) { return counter; }
 void nm_frontend_counter_set(uint32_t value) { counter=value; }
 
 unsigned nm_select_course_raced(unsigned chosen) {
+    if(chosen>=3 && chosen<NM_COURSE_SLOTS) return chosen;   /* PC: the Circuit Edition courses */
     if(chosen<3 && ((NATIVE_COURSES>>chosen)&1u)) return chosen;
     printf("Native select: course %u chosen, its data is not in this build (NATIVE_COURSES=%u); racing course 0\n",
         chosen,(unsigned)NATIVE_COURSES);
@@ -51,7 +58,7 @@ static void pad(void) {
         if(stick_armed && c->joyx<=-64) { step=-1;stick_armed=0; }
         if(stick_armed && c->joyx>=64) { step=1;stick_armed=0; }
         if(c->joyx>-32 && c->joyx<32) stick_armed=1;
-        const unsigned choices=select_state.state<=1 ? 3u : 2u;
+        const unsigned choices=select_state.state<=1 ? nm_select_render_courses() : 2u;
         if(step<0 && wanted) --wanted;
         if(step>0 && wanted+1<choices) ++wanted;
         if(c->button.START==ENJ_BUTTON_DOWN_THIS_FRAME || c->button.A==ENJ_BUTTON_DOWN_THIS_FRAME) confirm_pending=1;
@@ -82,7 +89,12 @@ static void update(void *unused) {
         remainder_us-=NM_PRACTICE_TICK_US;
         /* The highlighted choice restarts at slot 0 where the original's slot does (state 8). */
         if(select_state.state==8) wanted=0;
-        const int32_t steer=select_state.state<=1 ? (int32_t[]){0,64,127}[wanted<3 ? wanted : 0] : (wanted ? 127 : 0);
+#if NM_SELECT_COURSES == 5u
+        static const int32_t course_steer[5]={0,40,110,170,230};   /* inside nm_select_course_slot's five ranges */
+#else
+        static const int32_t course_steer[3]={0,64,127};
+#endif
+        const int32_t steer=select_state.state<=1 ? course_steer[wanted<nm_select_render_courses() && wanted<NM_SELECT_COURSES ? wanted : 0] : (wanted ? 127 : 0);
         const int accepting=select_state.state==1 || select_state.state==9;
         nm_select_input_t input={steer,previous_steer,(uint8_t)(accepting && confirm_pending),0};
         confirm_pending=0; /* a press outside the two choosing states is not kept for them */
@@ -106,6 +118,12 @@ int nm_select_mode_start(int scene, uint32_t credit_counter) {
     counter+=2;            /* phases 12 and 17 */
     nm_select_enter(&select_state);
     wanted=0;stick_armed=1;confirm_pending=0;trigger_armed=0;previous_steer=0;
+#ifdef DAYTONA_PC
+    {   /* Testing without hands (with DAYTONA_AUTOPLAY): the course select's cursor starts on this slot. */
+        const char *v=getenv("DAYTONA_AUTOPLAY_COURSE");
+        if(v && *v>='0' && *v<='9') wanted=(unsigned)(*v-'0');
+    }
+#endif
     frame_clock=(nm_frame_clock_t){0};remainder_us=0;frames=0;
     if(!nm_select_render_load(root)) return 0;
     nm_sound_command(NM_MUSIC_GAME_START); /* 2850: phase 12 */
@@ -125,6 +143,14 @@ int nm_select_attract_button(unsigned start, unsigned ltrigger, unsigned rtrigge
 
 int nm_select_credit(uint32_t credit_counter) {
     nm_practice_render_release();
+#ifdef DAYTONA_PC
+    /* With the Saturn menus: START in the attract cuts to the title (as the Saturn games and Daytona USA Ultimate),
+     * whose START opens the main menu. */
+    if(pc_saturn_menu_available()) {
+        nm_frontend_counter_set(credit_counter);
+        return nm_title_mode_start();
+    }
+#endif
     return nm_select_mode_start(NM_CREDIT_CINEMATIC,credit_counter);
 }
 

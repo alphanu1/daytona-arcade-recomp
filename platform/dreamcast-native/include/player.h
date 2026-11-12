@@ -1,5 +1,6 @@
 #ifndef DAYTONA_NATIVE_PLAYER_H
 #define DAYTONA_NATIVE_PLAYER_H
+#include "course_assets.h" /* NM_COURSE_SLOTS */
 #include "nm_mem.h"
 #include "forces.h"
 #include "tires.h"
@@ -844,7 +845,7 @@ static inline int nm_player_rolling_start(const nm_drive_params_t *p,
         const nm_contact_pack_t *contact, const nm_road_pack_t *road,
         const nm_path_pack_t *path, unsigned variant, nm_player_t *state,
         float *reference_height, uint32_t *start_flags) {
-    if (!road || road->slot>2 || !road->grid || !road->grid_count || !road->start || !road->grid_speeds || !road->grid_guided_scales ||
+    if (!road || road->slot>=NM_COURSE_SLOTS || !road->grid || !road->grid_count || !road->start || !road->grid_speeds || !road->grid_guided_scales ||
         !state || !reference_height || !start_flags || variant>=4 ||
         !isfinite(road->start->rolling_speed)) return 0;
     nm_player_t s; NM_COPY(&s,state);float height;

@@ -118,6 +118,9 @@ static inline void nm_a2d_time(nm_a2d_t *s, uint32_t time, uint32_t at) {
 static inline void nm_a2d_footer(nm_a2d_t *s) {
     (void)nm_a2d_block(s,0x2872a2au,0x10014d8u);
     (void)nm_a2d_block(s,0x2876a84u,0x100163cu);
+#ifdef DAYTONA_PC
+    return; /* PC: no coins, no credit display (CREDIT and its count) */
+#endif
     const unsigned credits=NM_A2D_CREDITS,coins=NM_A2D_COIN_SETTING;
     if(!coins) { nm_a2d_string(s,nm_a2d_text_free_play,0x1001608u);return; }
     nm_a2d_string(s,credits<2u ? nm_a2d_text_credit : nm_a2d_text_credits,0x1001608u);
@@ -125,11 +128,20 @@ static inline void nm_a2d_footer(nm_a2d_t *s) {
     nm_a2d_char(s,62u,0x1001630u);
     nm_a2d_number(s,coins,0x1001634u,1);
 }
+#ifdef DAYTONA_PC
+/* PC: no coins; START begins a game, so the line asks for it (the arcade's font and its blink; 19 cells as the
+ * arcade's lines, the text half a glyph right of the middle). The title's prompt too (nm_a2d_title). */
+static const char nm_a2d_text_pc_press_start[]=" PRESS START BUTTON";
+#endif
 /* 5588: the footer, then the line: blank while 5010b0 & 8 is clear, else INSERT COIN(S) without a credit. */
 static inline void nm_a2d_insert_coin(nm_a2d_t *s, uint32_t counter) {
     nm_a2d_footer(s);
+#ifdef DAYTONA_PC
+    const char *line=!(counter&8u) ? nm_a2d_text_blank_line : nm_a2d_text_pc_press_start;
+#else
     const char *line=!(counter&8u) ? nm_a2d_text_blank_line : !NM_A2D_CREDITS ? nm_a2d_text_insert_coin :
         NM_A2D_CREDITS<NM_A2D_COIN_SETTING ? nm_a2d_text_insert_more : nm_a2d_text_push_start;
+#endif
     nm_a2d_string(s,line,0x1001318u);
 }
 
@@ -199,6 +211,14 @@ static inline void nm_a2d_phase2(nm_a2d_t *s, unsigned course, const nm_race_rec
     nm_a2d_footer(s);
     (void)nm_a2d_block(s,0x287659cu,0x10000dcu);
 }
+#ifdef DAYTONA_PC
+/* PC: the title's prompt (its INSERT COIN(S) art is not drawn): the line alone, where 5588 draws it, shown or blank. */
+static inline void nm_a2d_title(nm_a2d_t *s, int shown) {
+    nm_memset(s,0,sizeof(*s));
+    nm_a2d_fill(s,0x0020u);
+    nm_a2d_string(s,shown ? nm_a2d_text_pc_press_start : nm_a2d_text_blank_line,0x1001318u);
+}
+#endif
 /* LAST: phase 5's last iteration (1dfc switches the ranking object off before it would run). */
 static inline void nm_a2d_cinematic(nm_a2d_t *s, unsigned phase, uint32_t counter, int last) {
     if(phase==4) { nm_a2d_footer(s);s->ranking=1; }

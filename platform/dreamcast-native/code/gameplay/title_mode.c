@@ -8,7 +8,15 @@
 #include "audio/race_sound_hooks.h"
 #include "game_save.h"
 #include <enDjinn/enj_enDjinn.h>
+#ifdef DAYTONA_PC
+#include "pc_horse.h"
+#include "pc_saturn_menu.h"
+#endif
 #include <stdio.h>
+
+#define title_load nm_title_render_load
+#define title_enqueue nm_title_render_enqueue
+#define title_release nm_title_render_release
 
 /* The title is the original's phase 9 (2338): 386 iterations after phase 8's one, then phase 10 (one)
  * returns to phase 2 (nm_attract_mode_start). START in it is a credit (1108 -> 2818): the select, the race
@@ -40,15 +48,33 @@ static void title_update(void *unused) {
         const enj_ctrlr_state_t *c=controllers[i];
         /* Both triggers held and START: the settings screen (gameplay/settings_mode.h), as the cabinet's TEST. */
         if(c->button.START==ENJ_BUTTON_DOWN_THIS_FRAME && c->ltrigger>=128 && c->rtrigger>=128) {
-            if(!nm_title_render_release()) { enj_state_flag_shutdown(NULL);return; }
+            if(!title_release()) { enj_state_flag_shutdown(NULL);return; }
             nm_practice_attract_abandon();
             if(!nm_settings_mode_start()) enj_state_flag_shutdown(NULL);
             return;
         }
+#ifdef DAYTONA_PC
+        /* The Saturn's horse code at the title (pc_horse.h): START with Up+Left+A+B+X+Y held. */
+        (void)pc_horse_title_code(c->button.raw);
+#endif
+#ifdef DAYTONA_PC
+        if(c->button.START==ENJ_BUTTON_DOWN_THIS_FRAME ||
+           (c->button.A==ENJ_BUTTON_DOWN_THIS_FRAME && !pc_horse_chord_held(c->button.raw))) {
+#else
         if(c->button.START==ENJ_BUTTON_DOWN_THIS_FRAME || c->button.A==ENJ_BUTTON_DOWN_THIS_FRAME) {
+#endif
             const uint32_t counter=nm_frontend_counter()+ticks+1u;
-            if(!nm_title_render_release()) { enj_state_flag_shutdown(NULL);return; }
+            if(!title_release()) { enj_state_flag_shutdown(NULL);return; }
             nm_practice_attract_abandon();
+#ifdef DAYTONA_PC
+            /* With the Saturn menus' art: Circuit Edition's main menu in the original Saturn game's style
+             * (pc_saturn_menu.h). */
+            if(pc_saturn_menu_available()) {
+                nm_frontend_counter_set(counter);
+                if(!pc_saturn_menu_start()) enj_state_flag_shutdown(NULL);
+                return;
+            }
+#endif
             if(!nm_select_mode_start(0,counter)) enj_state_flag_shutdown(NULL);
             return;
         }
@@ -60,7 +86,7 @@ static void title_update(void *unused) {
         printf("Native title: %u frames, %u late (longest %u us), %u frames past its last tick for the attract's load\n",
             (unsigned)frames,(unsigned)late,(unsigned)longest_us,(unsigned)held);
         nm_frontend_counter_set(nm_frontend_counter()+TITLE_TICKS+1u); /* phases 9 and 10 */
-        if(!nm_title_render_release() || !nm_attract_mode_start()) enj_state_flag_shutdown(NULL);
+        if(!title_release() || !nm_attract_mode_start()) enj_state_flag_shutdown(NULL);
         return;
     }
     if(ticks>=TITLE_TICKS && ++held==TITLE_HOLD_LIMIT) { /* the attract still loads: the title goes on, counting nothing */
@@ -68,13 +94,13 @@ static void title_update(void *unused) {
             (unsigned)held);
         nm_practice_attract_settle(); /* the rest at once, its palettes stored (the title ends at the next frame) */
     }
-    if(!nm_title_render_enqueue(pose_ticks)) /* the pose and the prompt's blink follow the ticks, on past the hold */
+    if(!title_enqueue(pose_ticks)) /* the pose and the prompt's blink follow the ticks, on past the hold */
         enj_state_flag_shutdown(NULL);
 }
 
 int nm_title_mode_start(void) {
     static enj_mode_t mode={.name="Daytona title",.mode_updater=title_update};
-    if(!nm_title_render_load()) return 0;
+    if(!title_load()) return 0;
     nm_race_sound_hook_engine_off(); /* 20fc/2100 at phase 8: be1700, be1900 (m2segment --trace-sound of the attract) */
     nm_sound_settle();
     (void)nm_practice_attract_preload(); /* the next attract scene, in the title's frames */

@@ -44,7 +44,13 @@ alignas(32) static pvr_poly_hdr_t draw_inspect_headers[2];
  * course/camera coverage needs measured geometry partitioning, not silent cuts.
  * Retain order; skip identical consecutive headers within each list callback.
  * Each triangle needs at most 128 TA bytes, including an unshared header. */
+#ifdef DAYTONA_PC
+/* PC: the host's TA decoder has no fixed vertex buffer (platform/pc-native/backend/host_pvr.cpp); the whole-course
+ * draw distance and the Saturn courses' unstripped sprites need far more than the console's 448 KiB. */
+#define NM_DRAW_TA_BYTES (16u*1024u*1024u)
+#else
 #define NM_DRAW_TA_BYTES (512u*1024u-64u*1024u)
+#endif
 /* Triangles of one frame. No buffer is sized by this number: the emission
  * queues hold every face of the packs and the stream is bounded by its bytes
  * (draw_ta_fits: 448 KiB of the 512 KiB TA vertex buffer of code/main.c, the
@@ -86,7 +92,9 @@ typedef struct {
     nm_material_uv_t uv;
     pvr_ptr_t texture;
 } nm_draw_material_t;
+#ifndef DAYTONA_PC /* 8-byte pointers on PC: the cache is unused there too (NULL above) */
 _Static_assert(sizeof(nm_draw_material_t) == 64, "aligned header and UV cache");
+#endif
 static nm_draw_material_t *draw_material_cache;
 static uint16_t *draw_bindings;
 static uint32_t *draw_runs; /* the car's material/luma runs (model_submission.h sq_lookup); NULL: draw_bindings */

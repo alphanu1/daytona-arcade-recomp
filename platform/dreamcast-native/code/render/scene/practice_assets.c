@@ -38,11 +38,17 @@ void nm_practice_render_unload(nm_practice_scene_t *scene) {
     }
     nm_damage_bodies_unload(&scene->damage_bodies);
     nm_damage_bodies_unload(&scene->hood_variants);
+#ifdef DAYTONA_PC
+    nm_damage_bodies_unload(&scene->pc_horse_frames);
+#endif
 }
 
 /* The most world points and faces one frame admits (nm_render_world_capacity): the largest 5x5 neighbourhood of
  * scenery cells (nm_scenery_cells: every view draws a subset of the 25 cells around its centre cell) plus every
  * world object. After the scenery stage selection, as the renderer sizes from the live meshes. */
+#ifdef DAYTONA_PC
+int pc_draw_distance(void); /* platform/pc-native/backend/pc_options.cpp */
+#endif
 static void practice_world_bound(const nm_practice_scene_t *scene,unsigned *points,unsigned *faces) {
     unsigned cell_points[256]={0},cell_faces[256]={0},object_points=0,object_faces=0;
     const nm_instance_t *sources=scene->world_sources;
@@ -55,9 +61,15 @@ static void practice_world_bound(const nm_practice_scene_t *scene,unsigned *poin
         object_points+=mesh->vertex_count;object_faces+=mesh->face_count;
     }
     unsigned best_points=0,best_faces=0;
+#ifdef DAYTONA_PC
+    /* The cells the PC's draw distance draws (pc_options.cpp): 5x5 up to +1, 7x7 at +2, the whole course at +3. */
+    const int level=pc_draw_distance(),reach=level>=3 ? 15 : level==2 ? 3 : 2;
+#else
+    const int reach=2;
+#endif
     for(int z=0;z<16;++z) for(int x=0;x<16;++x) {
         unsigned p=0,f=0;
-        for(int dz=-2;dz<=2;++dz) for(int dx=-2;dx<=2;++dx)
+        for(int dz=-reach;dz<=reach;++dz) for(int dx=-reach;dx<=reach;++dx)
             if(x+dx>=0 && x+dx<16 && z+dz>=0 && z+dz<16) { p+=cell_points[x+dx+16*(z+dz)];f+=cell_faces[x+dx+16*(z+dz)]; }
         if(p>best_points) best_points=p;
         if(f>best_faces) best_faces=f;
@@ -152,6 +164,25 @@ int nm_practice_render_load(nm_practice_scene_t *scene,const char *root,const ch
     *stage="car-hoods.dnb"; nm_loader_yield(0);
     snprintf(file,sizeof(file),"%scar-hoods.dnb",root);
     if(!nm_damage_hoods_load(&scene->hood_variants,file)) goto done;
+#ifdef DAYTONA_PC
+    /* The Saturn's horse (pc_horse.h): the gallop frames of the last two meshes of car.dnm (tools/prepare_horse.py). */
+    scene->pc_horse_mesh[0]=scene->pc_horse_mesh[1]=UINT32_MAX;
+    scene->pc_horse_variant[0]=scene->pc_horse_variant[1]=UINT32_MAX;
+    *stage="car-horse.dnb"; nm_loader_yield(0);
+    snprintf(file,sizeof(file),"%scar-horse.dnb",root);
+    if(!nm_damage_variants_load(&scene->pc_horse_frames,file,"horse gallop frames",32,0)) goto done;
+    if(scene->pc_horse_frames.data) {
+        const unsigned meshes=scene->model.header->meshes;
+        for(unsigned c=0;c<2;++c) {
+            const nm_mesh_t *m=scene->model.meshes+meshes-2+c;
+            if(meshes<2 || m->vertex_count!=scene->pc_horse_frames.vertices || m->face_count!=scene->pc_horse_frames.faces) {
+                printf("FAIL: car.dnm has no horse meshes for %s (platform/pc-native/tools/prepare_horse.py)\n",file);
+                goto done;
+            }
+            scene->pc_horse_mesh[c]=meshes-2+c;
+        }
+    }
+#endif
     /* The manual car takes the variants in its own face order and materials (render/scene/practice.c): up to one
      * light class a face. */
     {
@@ -161,6 +192,9 @@ int nm_practice_render_load(nm_practice_scene_t *scene,const char *root,const ch
             const unsigned need=scene->transmission && sets[i]->faces>sets[i]->classes ? sets[i]->faces : sets[i]->classes;
             if(need>classes) classes=need;
         }
+#ifdef DAYTONA_PC
+        if(scene->pc_horse_frames.classes>classes) classes=scene->pc_horse_frames.classes;
+#endif
         nm_render_car_light_classes_reserve(classes);
     }
     scene->player_body_variant=NM_DAMAGE_BODY_CLEAN;
@@ -274,7 +308,7 @@ int nm_practice_render_load(nm_practice_scene_t *scene,const char *root,const ch
         unsigned points,faces;
         practice_world_bound(scene,&points,&faces);
         nm_render_world_capacity(points,faces);
-        printf("Native world frame bound: %u points, %u faces (5x5 cells and the world objects)\n",points,faces);
+        printf("Native world frame bound: %u points, %u faces (the drawn cells and the world objects)\n",points,faces);
         /* Prebuilt world streams by course (course_assets.h NM_COURSE_WORLD_STREAMS). */
         nm_render_world_streams(nm_course_world_streams(scene->course));
     }

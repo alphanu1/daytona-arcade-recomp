@@ -30,10 +30,19 @@ static inline int nm_race_grid_profile(uint32_t authored, int16_t offset,
  * Selection only: grid placement and phase-entry side effects are separate. */
 static inline int nm_race_settings(const nm_road_pack_t *road, unsigned difficulty,
         nm_race_settings_t *out) {
-    if (!road || !out || !road->awards || road->slot >= 4 || difficulty >= 4 ||
+    if (!road || !out || !road->awards || road->slot >= 5 || difficulty >= 4 ||
         !road->total_laps || road->total_laps > 255) return 0;
+#ifdef DAYTONA_PC
+    /* The PC menus' GAME MODE (pc_saturn_options.h): Circuit Edition's GRANDPRIX and ENDURANCE laps and time. */
+    unsigned pc_saturn_race_laps(unsigned laps);
+    uint32_t pc_saturn_race_time(uint32_t ticks);
+    const unsigned laps = pc_saturn_race_laps(road->total_laps);
+    *out = (nm_race_settings_t){.initial_ticks=pc_saturn_race_time(road->awards->ticks[difficulty][0]),
+        .total_laps=(uint8_t)(laps > 255u ? 255u : laps),.difficulty=(uint8_t)difficulty};
+#else
     *out = (nm_race_settings_t){.initial_ticks=road->awards->ticks[difficulty][0],
         .total_laps=(uint8_t)road->total_laps,.difficulty=(uint8_t)difficulty};
+#endif
     return 1;
 }
 

@@ -22,7 +22,7 @@ static inline void nm_hud_observe(const nm_race_scene_t *s, nm_hud_race_t *race,
     cars->completed=p->lap.completed;cars->total_laps=p->checkpoints.total_laps;
     cars->rank=s->cars[0].rank;cars->count=s->count;
     cars->best_ticks=p->lap.best_ticks;cars->start_ticks=p->lap.start_ticks;
-    cars->speed_index=p->speed_index;cars->filtered_rpm=p->filtered_rpm;cars->gear=p->gear;
+    cars->speed_index=p->speed_index;cars->filtered_rpm=p->filtered_rpm;cars->gear=p->gear;cars->speed=p->boundary.speed;
     cars->x=p->boundary.ground.position[0];cars->z=p->boundary.ground.position[2];
     cars->yaw=(uint16_t)p->boundary.ground.yaw;
     if(p->lap_write.written && p->lap_write.index>=1 && p->lap_write.index<=8)

@@ -5,6 +5,12 @@
 #include "collision_response.h"
 #include "race_intents.h"
 #include "pit.h"
+#ifdef DAYTONA_PC
+#include "pc_horse.h"   /* the Saturn horse: the player's drive parameters (platform/pc-native/code) */
+#define NM_PLAYER_MATH(m) pc_horse_player_math(m)
+#else
+#define NM_PLAYER_MATH(m) (m)
+#endif
 #ifdef __DREAMCAST__
 #include <sh4zam/shz_mem.h>
 #endif
@@ -472,15 +478,15 @@ static inline int nm_race_movement_step(nm_race_car_t *cars,unsigned count,
         tick.dynamics.entity_id=0;tick.dynamics.lap=next.lap.completed;
         uint8_t released=0;
         if(rolling[0]==4 || rolling[0]==5) {
-            if(!nm_player_pit_tick(math,speed,contact,road,paths+cars[0].route,shared->pit_data,&tick,rolling[0]==4,
+            if(!nm_player_pit_tick(NM_PLAYER_MATH(math),speed,contact,road,paths+cars[0].route,shared->pit_data,&tick,rolling[0]==4,
                    &next,&shared->pit,&shared->timer_hold,&released)) return 0;
             /* dc18 enabled: dd14 from the next tick; the release d7fc changes it to normal below. */
             if(tick.dynamics.speed_flags&NM_PIT_FLAGS) rolling[0]=5;
         } else if(finishing) {
             uint8_t entered=(uint8_t)(rolling[0]==3);
-            if(!nm_player_finish_tick(math,contact,road,paths+cars[0].route,&tick,&next,&entered,&shared->timer_hold)) return 0;
+            if(!nm_player_finish_tick(NM_PLAYER_MATH(math),contact,road,paths+cars[0].route,&tick,&next,&entered,&shared->timer_hold)) return 0;
             rolling[0]=(uint8_t)(2+entered);
-        } else if(!nm_player_rolling_tick(math,contact,road,paths+cars[0].route,&tick,&next,start_flags,&released)) return 0;
+        } else if(!nm_player_rolling_tick(NM_PLAYER_MATH(math),contact,road,paths+cars[0].route,&tick,&next,start_flags,&released)) return 0;
         shared->clock=next.checkpoints.clock;shared->profile_updates=next.profile_updates;
         shared->crash_counter=next.boundary.damage.sequence_counter;
 #ifdef __DREAMCAST__
@@ -491,7 +497,7 @@ static inline int nm_race_movement_step(nm_race_car_t *cars,unsigned count,
 #endif
         if(released) rolling[0]=0;
     } else {
-        if(!nm_race_player_step(cars,count,shared,math,contact,road,paths+cars[0].route,input,award,marks)) return 0;
+        if(!nm_race_player_step(cars,count,shared,NM_PLAYER_MATH(math),contact,road,paths+cars[0].route,input,award,marks)) return 0;
         if(cars[0].car.route_transition) rolling[0]=4; /* d9b0: +c := dc18 */
     }
     /* Player updates wrap at logical count; opponents also read the terminal

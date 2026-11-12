@@ -17,9 +17,14 @@ import zlib
 from pathlib import Path
 
 # name, CRC-32, image, offset (rom_import.cpp kDaytona93/SHARED_LOADS)
+# The 68000 program: Revision A's pair (current MAME daytona93) or daytona93's own (older MAME layouts).
+PROGRAMS = [
+    [("epr-16720.7", 0x8E73CFFD, "sound_program", 0x000000),
+     ("epr-16721.8", 0x1BB3B7B7, "sound_program", 0x020000)],
+    [("epr-16489.7", 0xC20E543E, "sound_program", 0x000000),
+     ("epr-16490.8", 0xC24EDAAB, "sound_program", 0x020000)],
+]
 MEMBERS = [
-    ("epr-16720.7", 0x8E73CFFD, "sound_program", 0x000000),
-    ("epr-16721.8", 0x1BB3B7B7, "sound_program", 0x020000),
     ("mpr-16491.32", 0x89920903, "pcm1", 0x000000),
     ("mpr-16492.33", 0x459E701B, "pcm1", 0x200000),
     ("mpr-16493.4", 0x9990DB15, "pcm2", 0x000000),
@@ -35,7 +40,8 @@ def main():
     images = {name: bytearray(size) for name, size in SIZES.items()}
     with zipfile.ZipFile(archive) as z:
         members = {Path(n).name: n for n in z.namelist()}
-        for name, crc, image, offset in MEMBERS:
+        program = next((p for p in PROGRAMS if all(m[0] in members for m in p)), PROGRAMS[0])
+        for name, crc, image, offset in program + MEMBERS:
             if name not in members:
                 sys.exit(f"{archive}: no {name} (the sound ROMs of MAME's daytona93 set)")
             data = z.read(members[name])

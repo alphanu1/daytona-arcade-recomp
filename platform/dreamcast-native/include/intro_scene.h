@@ -1,5 +1,6 @@
 #ifndef DAYTONA_NATIVE_INTRO_SCENE_H
 #define DAYTONA_NATIVE_INTRO_SCENE_H
+#include "course_assets.h" /* NM_COURSE_SLOTS */
 #include "intro_drive_data.h" /* Generated locally from verified owned ROMs. */
 #include "visibility.h"
 #include "reflection.h"
@@ -392,7 +393,7 @@ static inline int nm_intro_scene_start_stages(nm_intro_scene_t *s,
        (flags!=(1u<<3) && flags!=(1u<<28)) ||
        ((flags>>28) && sizeof(nm_intro_crash_sequences)/sizeof(nm_intro_crash_sequences[0])<3)) return 0;
     /* The attract runs its loop's course (2865a60[501460]), the podium the race's (2865a70[501460]). */
-    if(road->slot>2 || !road->mapping || !road->map_count) return 0;
+    if(road->slot>=NM_COURSE_SLOTS || !road->mapping || !road->map_count) return 0;
     /* Active animation keeps its original sequence pointer. Both cinematic
      * parity directories deduplicate to the same owned-ROM sequence here. */
     if(nm_intro_crash_sequences[0].rows!=nm_intro_crash_sequences[1].rows ||

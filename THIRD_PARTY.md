@@ -70,3 +70,10 @@ and shipped license are documented in [the Vita dependency record](platform/vita
 The Dreamcast-native port's components (enDjinn, SH4ZAM, KallistiOS, AICAflow,
 AICAforge, the music pack) are in
 [its dependency record](platform/dreamcast-native/THIRD_PARTY.md).
+
+The PC-native port (`platform/pc-native`) builds the Dreamcast-native port's code with: enDjinn's
+`pc-enDjinn` and `host-common` backend (MIT, https://github.com/dfchil/enDjinn), ported to SDL3 in
+`platform/pc-native/backend`; KallistiOS's PVR headers and `pvr_prim.c` (KallistiOS licence, BSD-style,
+their copyright notices kept) in `platform/pc-native/include` and `kos-src`; SDL3 (zlib) and the Vulkan
+loader from the system. Its asset recipe can use AJBats/daytona-cce95's `tools/col_generate.py` (public
+domain) from your own checkout; nothing of it is copied here.

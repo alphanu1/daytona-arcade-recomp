@@ -41,6 +41,10 @@ typedef struct { uint16_t header[4], luma, resource; uint32_t color; } nm_materi
  * palettes, bits 8..15 saturating buckets, bit 16 mip chains. The renderer
  * owns the mapping of palette index to palette RAM bank. */
 #define NM_MATERIAL_PALETTES_MAX 64u
+/* PC (DAYTONA_PC): a textured DNT6 binding whose palette index is NM_MATERIAL_DIRECT draws a direct-colour texture
+ * (twiddled RGB565, or ARGB1555 for the punch-through list) with no palette: the Saturn courses' textures
+ * (platform/pc-native/tools/prepare_cce_course.py), whose ~200 colour tables the 64 palette banks cannot hold. */
+#define NM_MATERIAL_DIRECT 254u
 /* DNT6 translucent class (tools/prepare_palette_materials.py): a textured header with texel 15 transparent (word 0
  * bits 13-14 = 3) and the screen-checker bit 15, the arcade's screen-door half coverage (the cars' smoke). Its
  * vertex ARGB carries alpha NM_MATERIAL_TRANSLUCENT_ALPHA; the renderer puts it on the translucent list. */
@@ -166,6 +170,9 @@ static inline uint32_t nm_material_argb(const nm_material_pack_t *pack, const nm
 /* Palette index of a binding of this pack, or -1 (solid, or not a DNT6 pack). */
 static inline int nm_material_palette(const nm_material_pack_t *pack, const nm_material_binding_t *b) {
     if (!pack->palette_index || b->resource == NM_MATERIAL_SOLID) return -1;
+#ifdef DAYTONA_PC
+    if (pack->palette_index[b - pack->bindings] == NM_MATERIAL_DIRECT) return -1;
+#endif
     return pack->palette_index[b - pack->bindings];
 }
 

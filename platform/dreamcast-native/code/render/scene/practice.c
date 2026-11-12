@@ -1,3 +1,6 @@
+#ifdef DAYTONA_PC
+#include "pc_horse.h" /* the Saturn horse (platform/pc-native/code) */
+#endif
 #include "render/scene/practice.h"
 #include "clock_scene.h"
 #include "props_scene.h"
@@ -19,6 +22,13 @@
 #include "nm_mem.h"
 #include "frame_trace.h"
 
+/* The inspector's own cells and car detail are drawn while it is open; on PC also while Revision A's
+ * rolling-start camera plays (code/practice.c practice_pc_alt_camera), which fills the same arrays. */
+#ifdef DAYTONA_PC
+#define PRACTICE_OWN_DETAIL(scene) ((scene)->inspect_paused || (scene)->pc_alt_camera)
+#else
+#define PRACTICE_OWN_DETAIL(scene) ((scene)->inspect_paused)
+#endif
 const nm_view_t nm_practice_render_view = {{320,220},{0,640,0,480},0.1f};
 void nm_practice_render_matrix(const float m[12]) {
     alignas(32) shz_mat3x4_t matrix;
@@ -28,6 +38,12 @@ void nm_practice_render_matrix(const float m[12]) {
 int nm_practice_render_pose(nm_practice_scene_t *scene) {
     shz_memcpy4(scene->view,scene->intro.view,sizeof(scene->view));
     scene->camera_heading=scene->intro.heading;
+#ifdef DAYTONA_PC
+    if(scene->pc_alt_camera && !scene->inspect_paused) {
+        shz_memcpy4(scene->view,scene->pc_alt_view,sizeof(scene->view));
+        scene->camera_heading=scene->pc_alt_heading;
+    }
+#endif
     return 1;
 }
 int nm_practice_render_lighting(nm_practice_scene_t *scene) {
@@ -65,8 +81,16 @@ int nm_practice_render_tunnel(nm_practice_scene_t *scene,int tunnel,int others_o
 #ifndef NM_SMALL_CAR_PX
 #define NM_SMALL_CAR_PX 12
 #endif
+#ifdef DAYTONA_PC
+int pc_car_full_detail(void); /* platform/pc-native/backend/pc_options.cpp */
+#endif
 static inline unsigned practice_drawn_level(const nm_practice_scene_t *scene,unsigned car,unsigned level,
         const nm_instance_t *body) {
+#ifdef DAYTONA_PC
+    /* PC: a drawn car (the game's level above 0) takes its full model, the arcade's nearest (4) at any distance.
+     * Presentation only: the game's levels, which steer the opponents (car_detail.h), are not changed. */
+    if(level && pc_car_full_detail()) { (void)scene;(void)car;(void)body; return 4u; }
+#endif
 #if NM_SMALL_CAR_PX
     if(scene->attract_active || !car || level<2) return level;
     const float rows_at_unit_depth=(480.0f/384.0f)*1.28f*body->focus[1];
@@ -102,8 +126,8 @@ int nm_practice_render_parts(nm_practice_scene_t *scene) {
     unsigned crash_shadows=0;
     for(unsigned ordinal=0;ordinal<scene->intro.count;++ordinal) {
         scene->car_part_boundaries[ordinal]=scene->intro_header.instances;
-        const unsigned i=scene->inspect_paused ? scene->inspect_order[ordinal] : scene->intro.detail_order[ordinal];
-        const unsigned level=scene->inspect_paused ? scene->inspect_level[i] : scene->intro.detail_level[i];
+        const unsigned i=PRACTICE_OWN_DETAIL(scene) ? scene->inspect_order[ordinal] : scene->intro.detail_order[ordinal];
+        const unsigned level=PRACTICE_OWN_DETAIL(scene) ? scene->inspect_level[i] : scene->intro.detail_level[i];
         const nm_player_t *car=cars[i];
         const unsigned kind=kinds[i];
         if(kind==2) {
@@ -202,7 +226,11 @@ int nm_practice_render_projection(nm_practice_scene_t *scene,int enable) {
     scene->instance.center[1]=enable ? practice_view_centre(scene) : PRACTICE_UI_CENTER_Y;
     if(!enable) return 1;
     const int keyed=scene->attract_active || scene->race.cars[0].car.camera_mode==1;
-    const float key=scene->intro.camera.focus,reset=nm_force_float(scene->math->camera_reset_words[5]);
+    float key=scene->intro.camera.focus;
+#ifdef DAYTONA_PC
+    if(scene->pc_alt_camera && !scene->inspect_paused) key=scene->pc_alt_state.focus;
+#endif
+    const float reset=nm_force_float(scene->math->camera_reset_words[5]);
     /* Source order: difference, exact scale by 2^-3, sum; single precision. */
     const float eased=(reset-key)*0.125f;
     const nm_race_view_frame_t *frame=&scene->race.camera_frame;
@@ -464,7 +492,7 @@ int nm_practice_render_player_car(nm_practice_scene_t *scene) {
     const unsigned cars=scene->intro.count;
     unsigned ordinal=cars;
     for(unsigned i=0;i<cars;++i)
-        if((scene->inspect_paused ? scene->inspect_order[i] : scene->intro.detail_order[i])==0) { ordinal=i;break; }
+        if((PRACTICE_OWN_DETAIL(scene) ? scene->inspect_order[i] : scene->intro.detail_order[i])==0) { ordinal=i;break; }
     if(ordinal==cars) return 0;
     alignas(32) float matrices[NM_PLAYER_PARTS][12];
     const nm_player_t *car=scene->attract_active ? scene->intro.cars : &scene->race.cars[0].car;
@@ -488,6 +516,22 @@ int nm_practice_render_player_car(nm_practice_scene_t *scene) {
     for(unsigned wheel=0;wheel<4;++wheel)
         if(wheels_off&(1u<<nm_pit_wheel_bits[wheel])) bindings[NM_PLAYER_PART_WHEEL+wheel]=UINT32_MAX;
     const uint32_t damage=car->boundary.damage.damage;
+#ifdef DAYTONA_PC
+    /* The Saturn's horse (pc_horse.h): the body slot draws the horse mesh of the race's transmission (0 brown,
+     * 1 grey) at its gallop frame, nothing else of the car; the hood view has no hood to show. */
+    unsigned horse_mesh=UINT32_MAX;
+    if(!scene->attract_active && pc_horse_riding() && scene->pc_horse_frames.data) {
+        const unsigned colour=pc_horse_transmission(),frame=pc_horse_frame();
+        horse_mesh=scene->pc_horse_mesh[colour];
+        if(frame!=scene->pc_horse_variant[colour]) {
+            if(!nm_damage_body_apply(&scene->pc_horse_frames,frame,&scene->model,horse_mesh) ||
+               !nm_render_car_mesh_refresh(horse_mesh)) return 0;
+            scene->pc_horse_variant[colour]=frame;
+        }
+        for(unsigned part=0;part<NM_PLAYER_PARTS;++part) if(part!=NM_PLAYER_PART_BODY) bindings[part]=UINT32_MAX;
+        if(show&NM_PLAYER_SHOW_HOOD) bindings[NM_PLAYER_PART_BODY]=UINT32_MAX;
+    } else
+#endif
     if(show&NM_PLAYER_SHOW_HOOD) {
         bindings[NM_PLAYER_PART_BODY]=practice_player_hood(scene,damage);
         if(bindings[NM_PLAYER_PART_BODY]==UINT32_MAX-1u) return 0;
@@ -558,6 +602,9 @@ int nm_practice_render_player_car(nm_practice_scene_t *scene) {
         const nm_instance_t *source=scene->car_sources+bindings[part];
         shz_memcpy4(out,&scene->instance,sizeof(*out));
         out->mesh=source->mesh;out->source_address=source->source_address;
+#ifdef DAYTONA_PC
+        if(part==NM_PLAYER_PART_BODY && horse_mesh!=UINT32_MAX) out->mesh=horse_mesh;
+#endif
         shz_memcpy4(out->matrix,matrices[part],sizeof(matrices[part]));
         ++out;
     }
@@ -671,7 +718,7 @@ static void practice_hide_opponents(nm_practice_scene_t *scene) {
     if(scene->attract_active || !scene->race.count || (int32_t)scene->race.shared.timer_hold<=1) return;
     const unsigned cars=scene->intro.count;
     for(unsigned i=0;i<cars;++i) {
-        if((scene->inspect_paused ? scene->inspect_order[i] : scene->intro.detail_order[i])!=0) continue;
+        if((PRACTICE_OWN_DETAIL(scene) ? scene->inspect_order[i] : scene->intro.detail_order[i])!=0) continue;
         const unsigned first=scene->car_part_boundaries[i],count=scene->car_part_boundaries[i+1]-first;
         if(first) nm_memmove(scene->car_instances,scene->car_instances+first,count*sizeof(*scene->car_instances));
         for(unsigned k=0;k<=cars;++k) scene->car_part_boundaries[k]=k<=i ? 0 : count;
@@ -1075,16 +1122,71 @@ static void practice_ft_cars(const nm_practice_scene_t *scene) {
     }
 }
 #endif
+#ifdef DAYTONA_PC
+/* PC draw distance (platform/pc-native: DAYTONA_DRAW_DISTANCE, -2..+2; the desktop recomp's
+ * src/runtime/enhance.cpp hook_draw_list). Presentation only: the list the renderer draws, never the
+ * selection the opponents, objects and camera state keep. 0: the game's list. -1/-2: of it, the cells
+ * within one cell of the centre / the centre's alone. +1/+2: the game's list in its order, then every
+ * other cell within 2 (the whole 5x5 the game chooses from) / 3 (7x7), nearest ring first. */
+int pc_draw_distance(void);
+static unsigned practice_drawn_cells(const nm_scenery_cells_t *cells,uint8_t out[256]) {
+    const int level=pc_draw_distance();
+    unsigned n=0;
+    if(!cells->draw_count) return 0;
+    const int cx=cells->centre&15,cz=cells->centre>>4;
+    if(level<=0) {
+        const int keep=level==-2 ? 0 : level==-1 ? 1 : 2;
+        for(unsigned i=0;i<cells->draw_count;++i) {
+            const int dx=(cells->draw[i]&15)-cx,dz=(cells->draw[i]>>4)-cz;
+            if((dx<0 ? -dx : dx)<=keep && (dz<0 ? -dz : dz)<=keep) out[n++]=cells->draw[i];
+        }
+        return n;
+    }
+    for(unsigned i=0;i<cells->draw_count;++i) out[n++]=cells->draw[i];
+    const int radius=level>=3 ? 15 : 1+level;   /* +3: every cell of the 16x16 course, nearest first */
+    for(int r=0;r<=radius;++r)
+        for(int dz=-r;dz<=r;++dz)
+            for(int dx=-r;dx<=r;++dx) {
+                if((dx<0 ? -dx : dx)!=r && (dz<0 ? -dz : dz)!=r) continue;
+                const int x=cx+dx,z=cz+dz;
+                if(x<0 || x>15 || z<0 || z>15) continue;
+                const uint8_t cell=(uint8_t)(x+16*z);
+                unsigned k=0;
+                while(k<n && out[k]!=cell) ++k;
+                if(k==n && n<256) out[n++]=cell;
+            }
+    return n;
+}
+#endif
 int nm_practice_render_scenery(nm_practice_scene_t *scene) {
     nm_scenery_cells_t cells;
     cells=scene->intro.cells;
-    if(scene->inspect_paused) cells=scene->inspect_cells;
+    if(PRACTICE_OWN_DETAIL(scene)) cells=scene->inspect_cells;
     /* Every selected scenery instance uses this same camera matrix. */
     shz_memcpy4(scene->instance.matrix,scene->view,sizeof(scene->view));
     scene->world_header.instances=0;
     if(!scene->world_sources) return 1; /* No world pack (a course without one, practice_assets.c). */
-    for (unsigned c=0;c<cells.draw_count;++c) {
-        const nm_scenery_cell_t *cell=scene->scenery.cells+cells.draw[c];
+#ifdef DAYTONA_PC
+    uint8_t drawn[256];
+    const unsigned drawn_count=practice_drawn_cells(&cells,drawn);
+#else
+    const uint8_t *const drawn=cells.draw;
+    const unsigned drawn_count=cells.draw_count;
+#endif
+#ifdef DAYTONA_PC
+    {   /* DAYTONA_DRAW_STATS=1: the game's cells against the drawn ones, now and then. */
+        static int stats=-1; static unsigned calls;
+        if(stats<0) { const char *v=getenv("DAYTONA_DRAW_STATS"); stats=v && *v=='1'; }
+        if(stats && !(++calls%300u)) {
+            unsigned instances=0;
+            for(unsigned c=0;c<drawn_count;++c) instances+=scene->scenery.cells[drawn[c]].count;
+            printf("PC draw distance %d: game cells %u, drawn cells %u, scenery instances %u\n",
+                pc_draw_distance(),(unsigned)cells.draw_count,drawn_count,instances);
+        }
+    }
+#endif
+    for (unsigned c=0;c<drawn_count;++c) {
+        const nm_scenery_cell_t *cell=scene->scenery.cells+drawn[c];
         for (unsigned j=0;j<cell->count;++j) {
             if (scene->world_header.instances>=scene->scenery.instances+scene->world_object_count) return 0;
             const nm_instance_t *source=scene->world_sources+cell->first+j;
@@ -1105,8 +1207,18 @@ int nm_practice_render_scenery(nm_practice_scene_t *scene) {
     if(scene->world_object_count && !(!scene->attract_active && scene->race.count && scene->race.shared.pit.suspended)) {
         uint32_t bitmaps[16];
         unsigned variant[NM_OBJECT_KINDS];
-        const nm_scenery_cells_t *seen=scene->inspect_paused ? &scene->inspect_cells : &scene->intro.cells_previous;
+        const nm_scenery_cells_t *seen=PRACTICE_OWN_DETAIL(scene) ? &scene->inspect_cells : &scene->intro.cells_previous;
         if(!nm_scenery_bitmaps(seen,bitmaps) || !practice_object_variants(scene,variant)) return 0;
+#ifdef DAYTONA_PC
+        if(pc_draw_distance()) {
+            /* The objects of the drawn cells: the draw bitmap rebuilt from the widened (or narrowed) list;
+             * the near bitmap stays the game's. */
+            uint8_t seen_cells[49];
+            const unsigned seen_count=practice_drawn_cells(seen,seen_cells);
+            for(unsigned w=0;w<8;++w) bitmaps[w]=0;
+            for(unsigned k=0;k<seen_count;++k) bitmaps[seen_cells[k]>>5]|=1u<<(seen_cells[k]&31);
+        }
+#endif
         /* Selection runs (meshpack.h): one bitmap test per run; the wanted
          * variant is tried at its dense position, then looked for. */
         const nm_instance_t *const sources=scene->world_sources+scene->world_object_first;
@@ -1339,14 +1451,18 @@ static int practice_prepare(nm_practice_scene_t *scene) {
     if(!setup_failed && !practice_slot_glass(scene)) return 0;
     unsigned player=scene->intro.count; /* Cinematic cars are all opponents. */
     if(!scene->attract_active) for(unsigned i=0;i<scene->intro.count;++i)
-        if((scene->inspect_paused ? scene->inspect_order[i] : scene->intro.detail_order[i])==0) { player=i; break; }
+        if((PRACTICE_OWN_DETAIL(scene) ? scene->inspect_order[i] : scene->intro.detail_order[i])==0) { player=i; break; }
     if (setup_failed || !nm_render_enqueue_objects(
             scene->car_part_boundaries,scene->intro.count
             ,player)) {
         return 0;
     }
 #if NM_SCENERY_SKY && !defined(NM_DIAG_NO_SKY) /* make NATIVE_DIAG_NO_SKY=1 (measurement): flat background, code/main.c */
-    if(scene->world_sources && !nm_sky_enqueue((uint16_t)scene->camera_heading,scene->intro.sky_scroll)) return 0;
+    uint16_t sky_scroll=scene->intro.sky_scroll;
+#ifdef DAYTONA_PC
+    if(scene->pc_alt_camera && !scene->inspect_paused) sky_scroll=scene->pc_alt_sky_scroll;
+#endif
+    if(scene->world_sources && !nm_sky_enqueue((uint16_t)scene->camera_heading,sky_scroll)) return 0;
 #endif
 #ifndef NM_DIAG_NO_SHADOW_VOLUMES
     if(scene->shadow_count) enj_render_list_add(PVR_LIST_OP_MOD,practice_shadow_volumes,scene);

@@ -1,3 +1,29 @@
+# Daytona USA Native Ultimate (branch `daytona-native-ultimate`)
+
+This branch adds **a native PC port of Daytona USA** in [`platform/pc-native`](platform/pc-native/README.md):
+the repository's Dreamcast-native source port (the game written again in C from the arcade program and
+checked against it tick for tick) on SDL3 and Vulkan, built and played on Linux (written for Windows and macOS
+too, not yet tried there). **It is a real
+native port, not a recompilation and not an emulator**: none of the arcade's i960 or TGP code runs, unlike the
+static recompilation this repository is otherwise about (below).
+
+It adds the Saturn versions' extras, in the spirit of Daytona USA Ultimate: the Saturn secret horse, Circuit
+Edition's National Park Speedway and Desert City, Circuit Edition's menus and pause in the original Saturn game's
+look, Revision A's race-start camera, the whole course drawn, the US English screens.
+
+**No game data is included.** You make everything from your own copies:
+
+| Game | Version | |
+| --- | --- | --- |
+| Daytona USA (arcade) | MAME `daytona93` (Deluxe '93) | required |
+| Daytona USA (arcade) | MAME `daytona` (Revision A) | optional: the Revision A start camera |
+| Daytona USA (Saturn, 1995) | the original release | optional: the horse's sounds and handling, the Saturn-style menus |
+| Daytona USA Circuit Edition (Saturn, 1996) | Japanese release, GS-9100 | optional: the two Circuit Edition courses (with a checkout of AJBats/daytona-cce95) |
+
+How to dump them, which files are used and how to build: **[platform/pc-native/README.md](platform/pc-native/README.md)**.
+
+---
+
 # Daytona USA static recompilation
 
 Daytona USA (Sega Model 2) rebuilt as native code: the game's i960 program
@@ -19,6 +45,7 @@ MAME-format `.zip` or `.7z`): `daytona93` (Daytona USA Deluxe '93) or
 | iOS | Works on iPhone, installed through Xcode or AltStore, with touch controls or a controller; tested on a device | [platform/mobile](platform/mobile/README.md) |
 | PS Vita | Works: a native Vita app (SDL2); with vitaGL about 57.3 frames/s (the arcade runs 57.52) at CPU 444 / GPU 166 MHz, no overclocking plugin; tested on a Vita | [platform/vita](platform/vita/README.md), release build: [HOW_TO_COMPILE_RELEASE.md](HOW_TO_COMPILE_RELEASE.md) |
 | Dreamcast | Runs in the Flycast emulator with sound and the controller, about 32 frames/s (the arcade runs 57.52); not yet on a console; in progress | [platform/dreamcast](platform/dreamcast/README.md) |
+| PC, native (this branch) | The Dreamcast-native port's C code on SDL3 and Vulkan: a native port, not the recompiled program; Saturn and Circuit Edition extras | [platform/pc-native](platform/pc-native/README.md) |
 | Dreamcast, native | A separate port: the gameplay written again in C and bit-exact to the arcade, PVR-native rendering, 60 frames/s on a console, all three circuits; from `daytona93` | [platform/dreamcast-native](platform/dreamcast-native/README.md) |
 
 Every port starts from the desktop setup: the game code is generated on a

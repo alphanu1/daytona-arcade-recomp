@@ -1,5 +1,6 @@
 #ifndef DAYTONA_NATIVE_RACE_SCENE_H
 #define DAYTONA_NATIVE_RACE_SCENE_H
+#include "course_assets.h" /* NM_COURSE_SLOTS */
 #include "nm_mem.h"
 #include "race_field.h"
 #include "race.h"
@@ -191,7 +192,7 @@ static inline int nm_race_scene_start_carried(nm_race_scene_t *s,const nm_drive_
         nm_road_marks_t *marks,unsigned mark_capacity,const nm_pit_data_t *pit,const nm_player_t *previous) {
     nm_race_settings_t settings;
     if(!s || !math || !contact || !road || !paths || !marks || !marks->values ||
-       road->slot>2 || contact->slot!=road->slot || !road->grid || road->grid_count<3 || road->grid_count>44 ||
+       road->slot>=NM_COURSE_SLOTS || contact->slot!=road->slot || !road->grid || road->grid_count<3 || road->grid_count>44 ||
        road->profile_count<2 || road->checkpoint_count>31 || marks->count!=road->profile_count-1 ||
        mark_capacity<road->profile_count || model_variant>=4 ||
        !nm_race_settings(road,difficulty,&settings)) return 0;
