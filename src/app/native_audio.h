@@ -65,6 +65,8 @@ public:
         gain_.store(uint32_t(std::clamp(gain, 0.f, 1.f) * 65536.f), std::memory_order_relaxed);
     }
     void mute(bool muted) { muted_.store(muted, std::memory_order_relaxed); }
+    // Both channels the mean of the two (a mono output setting).
+    void mono(bool on) { mono_.store(on, std::memory_order_relaxed); }
     // The music and effects volumes (0..1), for an engine that has them.
     void volumes(float music, float effects) {
         auto level = [](float v) { return uint32_t((std::isfinite(v) ? std::clamp(v, 0.f, 1.f) : 0.f) * 65536.f); };
@@ -107,7 +109,7 @@ private:
     std::unique_ptr<Engine> engine_;
     std::array<uint8_t, kQueueSize> queue_{};
     std::atomic<uint32_t> read_{0}, write_{0}, callbacks_{0}, frames_{0}, overflows_{0}, failed_{0};
-    std::atomic<uint32_t> gain_{52428}, muted_{0}, unsupported_{0}, invalid_{0};
+    std::atomic<uint32_t> gain_{52428}, muted_{0}, mono_{0}, unsupported_{0}, invalid_{0};
     std::atomic<uint32_t> music_{65536}, effects_{65536};
 
     void health() {
@@ -147,6 +149,8 @@ private:
                     self.engine_->render(mix, count);
                     for (unsigned i = 0; i < count * 2; ++i)
                         mix[i] = std::isfinite(mix[i]) ? std::clamp(mix[i] * gain, -1.f, 1.f) : 0.f;
+                    if (self.mono_.load(std::memory_order_relaxed))
+                        for (unsigned i = 0; i < count; ++i) mix[2 * i] = mix[2 * i + 1] = 0.5f * (mix[2 * i] + mix[2 * i + 1]);
                     self.frames_.fetch_add(count, std::memory_order_relaxed);
                 }
                 if (!SDL_PutAudioStreamData(stream, mix, int(count * sizeof(float) * 2))) {

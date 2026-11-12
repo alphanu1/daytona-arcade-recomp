@@ -91,6 +91,22 @@ typedef struct nm_practice_scene {
     nm_scenery_cells_t inspect_cells;
     int16_t inspect_depth[44];
     uint8_t inspect_order[44],inspect_level[44];
+#ifdef DAYTONA_PC
+    /* PC: Revision A's rolling-start camera (DAYTONA_ROLLING_START=reva, code/practice.c). Presentation only:
+     * drawn with the inspector's cells and detail arrays above; the race keeps Deluxe '93's camera pass. */
+    int pc_alt_camera;
+    nm_intro_cursor_t pc_alt_cursor;
+    nm_intro_camera_t pc_alt_state;
+    nm_intro_anchor_t pc_alt_anchors[44];
+    alignas(32) float pc_alt_view[12];
+    int16_t pc_alt_heading;
+    uint16_t pc_alt_sky_scroll;
+    /* PC: the Saturn's horse (platform/pc-native/code/pc_horse.h): its 32 gallop frames as variants of the two
+     * horse meshes appended to car.dnm (car-horse.dnb, tools/prepare_horse.py: 0 brown, 1 grey; UINT32_MAX without
+     * them), the frame the drawn one holds. */
+    nm_damage_bodies_t pc_horse_frames;
+    unsigned pc_horse_mesh[2],pc_horse_variant[2];
+#endif
     nm_pack_t model;
     nm_cached_vertex_t *points;
     alignas(32) float view[12];

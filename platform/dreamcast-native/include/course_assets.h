@@ -21,6 +21,17 @@
 #endif
 static inline int nm_course_world_streams(unsigned course) { return course<3 && ((NM_COURSE_WORLD_STREAMS>>course)&1u); }
 
+/* Course slots: the arcade's three, and on the PC two of Daytona USA Circuit Edition (Saturn): 3 National Park
+ * Speedway, 4 Desert City (platform/pc-native/tools/prepare_cce_course.py). */
+#ifdef DAYTONA_PC
+#define NM_COURSE_SLOTS 5u
+#else
+#define NM_COURSE_SLOTS 3u
+#endif
+/* The arcade course whose ROM tables (start cameras, pit, podium, race voices) a slot takes: its own, or for the
+ * Circuit Edition courses Advanced's (2), a standing start of 20 cars as theirs. */
+static inline unsigned nm_course_arcade(unsigned course) { return course<3u ? course : 2u; }
+
 /* File names of a course's packs in the asset set. Course 0 keeps the names it has always had
  * (scenery.dnv, world.dnm, world.dnt, sky.dns); the others are courseN.dnc, courseN.dnr,
  * courseN-route0..7.dnp, courseN.dnv, courseN-world.dnm, courseN-world.dnt and courseN-sky.dns, and
@@ -30,7 +41,7 @@ enum { NM_COURSE_DRIVE, NM_COURSE_CONTACT, NM_COURSE_ROAD, NM_COURSE_ROUTE, NM_C
        NM_COURSE_WORLD, NM_COURSE_WORLD_MATERIALS, NM_COURSE_SKY, NM_COURSE_ACTORS };
 
 static inline int nm_course_asset(char *out,size_t size,const char *root,unsigned course,unsigned kind,unsigned route) {
-    if(!out || !size || !root || course>2 || route>7) return 0;
+    if(!out || !size || !root || course>=NM_COURSE_SLOTS || route>7) return 0;
     const size_t length=strlen(root);
     const char *slash=length && root[length-1]=='/' ? "" : "/";
     int n=-1;

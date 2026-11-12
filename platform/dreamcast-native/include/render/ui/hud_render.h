@@ -17,3 +17,8 @@ void nm_hud_render_unload(void);
 void nm_hud_render_reset(const nm_hud_t *hud);
 void nm_hud_render_tick(const nm_hud_t *hud);
 int nm_hud_render_enqueue(int flat);
+/* The board's COUNTRY (53e59a; EEPROM +1b) the HUD pack was made with (tools/prepare_hud.py --country): 0 USA,
+ * 1 JPN (factory, and without a HUD pack), 2 EXPORT; and for USA the speed's mph scale (28b5740, b1e4..b230),
+ * else 0 (the speed index in km/h). */
+unsigned nm_hud_render_country(void);
+float nm_hud_render_mph_scale(void);

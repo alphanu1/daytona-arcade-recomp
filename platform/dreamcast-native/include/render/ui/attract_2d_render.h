@@ -23,6 +23,10 @@ void nm_attract_2d_phase2(unsigned course, const nm_race_record_t *records, unsi
 void nm_attract_2d_cinematic(unsigned phase, uint32_t counter, int last);
 /* A demo iteration: phase 6 (its start), then 7. */
 void nm_attract_2d_demo(unsigned phase, uint32_t counter);
+#ifdef DAYTONA_PC
+/* PC: the arcade title's prompt as the attract's line (PRESS START BUTTON), PROMPT its blink. */
+void nm_attract_2d_title(int prompt);
+#endif
 /* The layer is not drawn until the next phase 2 (the title, a game). */
 void nm_attract_2d_off(void);
 /* This frame's layer: the punch-through list's callback. */

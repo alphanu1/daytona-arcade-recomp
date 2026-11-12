@@ -15,7 +15,7 @@ int nm_path_load(nm_path_pack_t *p, const char *path) {
     nm_path_pack_t next = {0};
     uint32_t h[8];
     int ok = fread(h,1,sizeof(h),f) == sizeof(h) && h[0] == 0x31504e44 &&
-        h[2] < 3 && h[3] < 8 && h[4] && h[4] <= 1162 && h[5] == h[4]+8 &&
+        h[2] < 5 && h[3] < 8 && h[4] && h[4] <= 1162 && h[5] == h[4]+8 &&
         h[1] == sizeof(h)+28*h[5] && !h[6] && !h[7];
     if (ok) {
         next.slot = h[2]; next.route = h[3]; next.count = h[4]; next.records = h[5];

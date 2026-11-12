@@ -1,7 +1,7 @@
 #ifndef DAYTONA_NATIVE_MESHPACK_H
 #define DAYTONA_NATIVE_MESHPACK_H
 #include <stdint.h>
-#ifdef __DREAMCAST__
+#if defined(__DREAMCAST__) || defined(DAYTONA_PC)
 #include <sh4zam/shz_matrix.h>
 #endif
 
@@ -298,7 +298,7 @@ typedef struct {
     uint32_t mesh, source_address, window, reverse;
     union {
         float matrix[12]; /* Serialized column-major DNM matrix. */
-#ifdef __DREAMCAST__
+#if defined(__DREAMCAST__) || defined(DAYTONA_PC) /* 48 bytes, 4-aligned on both */
         shz_mat3x4_t transform; /* Same bytes, direct XMTRX load. */
 #endif
     };

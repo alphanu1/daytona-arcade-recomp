@@ -295,8 +295,9 @@ static inline int nm_opponent_height_step_inplace(const nm_drive_params_t *p,
         h.sampled_velocity=velocity;
     }
     const uint16_t correction=(uint8_t)next->correction_ticks | ((uint16_t)next->surface_phase<<8);
-    if(correction<=24 && contact->slot>=3) return 0;
-    const unsigned index=correction<=24 ? contact->slot*7+(correction>>2) : 21;
+    if(correction<=24 && contact->slot>=5) return 0;
+    /* The PC build's Circuit Edition slots 3, 4: Advanced's pairs (course_assets.h nm_course_arcade). */
+    const unsigned index=correction<=24 ? (contact->slot<3 ? contact->slot : 2u)*7+(correction>>2) : 21;
     const float *coeff=p->opponent_height_coefficients[index];
     const float force=coeff[0]*(h.sampled_velocity-h.velocity);
     const float displacement=hit.height-h.reference_height;

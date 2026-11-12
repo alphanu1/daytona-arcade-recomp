@@ -124,10 +124,30 @@ int nm_game_settings_set(const nm_settings_t *value) {
     live.settings=*value;return 1;
 }
 
-nm_race_record_t *nm_game_records(unsigned course) { return live.records[nm_save_table(course)]; }
+#ifdef DAYTONA_PC
+/* The Circuit Edition courses (slots 3, 4): record tables of their own, Advanced's defaults, kept for the session
+ * (the save file holds the arcade's three). */
+static nm_race_record_t pc_records[2][NM_SAVE_SLOTS];
+static int pc_records_seeded;
+#endif
+nm_race_record_t *nm_game_records(unsigned course) {
+#ifdef DAYTONA_PC
+    if(course>=3u && course<5u) {
+        if(!pc_records_seeded) {
+            for(unsigned t=0;t<2;++t) nm_memcpy(pc_records[t],live.records[2],sizeof(pc_records[t]));
+            pc_records_seeded=1;
+        }
+        return pc_records[course-3u];
+    }
+#endif
+    return live.records[nm_save_table(course)];
+}
 
 void nm_game_record_inserted(unsigned course,unsigned slot) {
     if(slot>=NM_SAVE_SLOTS) return;
+#ifdef DAYTONA_PC
+    if(course>=3u) return;   /* the session's tables (nm_game_records) */
+#endif
     const unsigned t=nm_save_table(course);
     /* The insertion moved slots slot..22 one down and dropped slot 23. */
     const uint32_t below=inserted[t]&((UINT32_C(1)<<slot)-1u);

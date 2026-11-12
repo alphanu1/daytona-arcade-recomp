@@ -21,7 +21,13 @@
 #include "race_scene.h"
 #include "shifter.h"
 #include "steer_curve.h"
+#ifdef DAYTONA_PC
+#include "pc_horse.h" /* the Saturn horse (platform/pc-native/code/pc_horse.h) */
+#endif
 #if !defined(NATIVE_RACE_SCRIPT) && !defined(NATIVE_DRIVING_TEST)
+#ifdef DAYTONA_PC
+uint8_t pc_steer_adc(unsigned port, int8_t joyx, int32_t speed_kmh); /* platform/pc-native */
+#endif
 static uint8_t practice_steer_table[256]; /* the pad's stick to the wheel's ADC byte (steer_curve.h), built once */
 #endif
 #include "race_intent_data.h"
@@ -66,6 +72,13 @@ _Static_assert(NM_RACE_START_COURSES>>NM_COURSE&1u,
 
 #include "render/scene/practice.h"
 #include "render/ui/hud_render.h" /* HUD */
+/* 191c8/191d0's special commands by 53e59a & 1 (race_intents.h): the console build keeps the reference board's
+ * (JPN, its lockstep traces); the PC the country its packs were made for (nm_hud_render_country). */
+#ifdef DAYTONA_PC
+#define PRACTICE_INTENT_UNIT (nm_hud_render_country()&1u)
+#else
+#define PRACTICE_INTENT_UNIT NM_RACE_INTENT_UNIT
+#endif
 #include "hud_scene.h"
 /* Palette shading: result palettes are written at the phase25 hand-off. */
 #include "render/materials/result_materials.h"
@@ -204,11 +217,57 @@ static int16_t practice_reflection_heading(const nm_player_t *car) {
     if(car->camera_mode==2 && nm_race_view_angles(car,angles,&heading)) return heading;
     return nm_follow_heading(car);
 }
+#if defined(DAYTONA_PC) && __has_include("reva_start_camera.h")
+/* PC: Revision A's race start (reva_start_camera.h, generated from your daytona (Revision A) set by
+ * platform/pc-native/tools/prepare_reva_start.py: build_pc_assets.sh with DAYTONA_REVA_ROM; without it the start
+ * camera is Deluxe '93's). While the start track plays
+ * (camera mode 1 with the transition byte, start track of the pit word 0), Revision A's keys for the course
+ * run on their own cursor, anchored to the same live cars, and the drawn cells and car detail come from
+ * that view. Nothing of it reaches the race: its detail pass, guided mode and bitmaps stay Deluxe '93's. */
+#include "reva_start_camera.h"
+int pc_rolling_start_reva(void);
+static void practice_pc_alt_camera(void) {
+    nm_practice_scene_t *s=&practice;
+    const nm_player_t *player=s->race.count ? &s->race.cars[0].car : NULL;
+    /* race_camera.h: mode 1 with the transition byte (501713) set is the start / pit track; clear, the crash camera. */
+    if(!pc_rolling_start_reva() || s->attract_active || !player || player->camera_mode!=1 ||
+       !player->camera_transition || s->race.shared.pit.camera || s->race.course>2) {
+        s->pc_alt_camera=0;s->pc_alt_cursor=(nm_intro_cursor_t){0};
+        return;
+    }
+    const unsigned course=s->race.course; /* course slot 501460, as Revision A's 6c98 */
+    nm_scenery_cells_t cells;
+    if(!s->pc_alt_camera) {
+        /* The detail pass keeps its car order and depth keys from tick to tick: start from the race's own. */
+        nm_memcpy(s->inspect_order,s->intro.detail_order,sizeof(s->inspect_order));
+        nm_memcpy(s->inspect_depth,s->intro.detail_depth,sizeof(s->inspect_depth));
+    }
+    const nm_player_t *players[44];
+    for(unsigned i=0;i<s->race.count;++i) players[i]=&s->race.cars[i].car;
+    if(!nm_race_start_camera(s->race.cars,s->race.count,s->math,&s->scenery,nm_reva_start_keys[course],
+            nm_reva_start_times[course],nm_reva_start_counts[course],s->pc_alt_anchors,&s->pc_alt_cursor,
+            &s->pc_alt_state,s->pc_alt_view,&s->pc_alt_heading,&s->pc_alt_sky_scroll,&cells) ||
+       !nm_race_detail_step(s->pc_alt_view,&cells,players,s->race.count,
+            s->inspect_depth,s->inspect_order,s->inspect_level)) {
+        if(getenv("DAYTONA_CAMERA_DEBUG")) printf("PC camera: Revision A start rejected (course %u)\n",course);
+        s->pc_alt_camera=0;
+        return;
+    }
+    if(!s->pc_alt_camera && getenv("DAYTONA_CAMERA_DEBUG"))
+        printf("PC camera: Revision A start camera on (course %u), eye %.2f %.2f %.2f\n",course,
+            s->pc_alt_state.position[0],s->pc_alt_state.position[1],s->pc_alt_state.position[2]);
+    s->inspect_cells=cells;
+    s->pc_alt_camera=1;
+}
+#else
+static void practice_pc_alt_camera(void) {}
+#endif
 static int practice_race_detail(void) {
     practice_detail_reject=nm_race_camera_pass(&practice.race,&practice.intro,practice.math,&practice.scenery,
         &practice_cameras,practice_view_held);
     if(practice_detail_reject) return 0;
     practice_detail_reject="";
+    practice_pc_alt_camera();
     return 1;
 }
 
@@ -235,8 +294,17 @@ static void practice_report_reject(void) {
 }
 
 /* The original's music choice (501a94, audio/music_select.h): no VR buttons in the
- * native race, so the course's own. */
+ * native race, so the course's own; on the PC the Options' BGM SELECT for the course (pc_saturn_options.h: the
+ * arcade's four songs, also for the Circuit Edition slots 3, 4, which the tables don't reach). */
+#ifdef DAYTONA_PC
+#include "pc_saturn_options.h"
+#include "pc_saturn_menu.h"
+void pc_sound_pause(int on); /* platform/pc-native/audio/pc_sound.cpp */
+static struct { int active, start_down, start_clean; unsigned cursor; } pc_pause;
+#define practice_music_select (pc_saturn_bgm(practice.course))
+#else
 #define practice_music_select (practice.course)
+#endif
 
 /* The race HUD's state (include/hud.h): computed here, in a unit built with the gameplay's float flags
  * (the CONDITION panel's zoom, radius and circle test are the original's exactly), drawn by
@@ -246,6 +314,7 @@ static nm_hud_cars_t practice_hud_cars;
 static void practice_hud_reset(void) {
     nm_hud_race_t race;
     nm_memset(&practice_hud_cars,0,sizeof(practice_hud_cars));practice_hud_cars.math=practice.math;
+    practice_hud_cars.mph_scale=nm_hud_render_mph_scale(); /* a USA board's speed in mph (hud_render.h) */
     practice_hud_cars.manual=(uint8_t)practice.transmission; /* b0c0, the gear indicator */
     nm_hud_observe(&practice.race,&race,&practice_hud_cars);nm_hud_reset(&practice_hud,&race,&practice_hud_cars);
     practice_hud.course=(uint8_t)practice.course;
@@ -261,14 +330,24 @@ static void practice_hud_tick(void) {
 /* The end of one results tick (gameplay/results.c, after its phase handler):
  * the race field's pass unless the results follow a podium, then the
  * checkpoint row of this tick (the same order as tests/trace_race_native.c). */
+/* The positional calls (19438's rows) of a course slot: the arcade's courses' own; the Circuit Edition courses (PC
+ * slots 3, 4) have none, the arcade's being keyed to its courses' progress: one row no progress reaches. */
+static const nm_race_announcement_row_t practice_no_announcement[1]={{INT32_MAX,0,0}};
+static const nm_race_announcement_row_t *practice_announcements(unsigned course) {
+    return course<3u ? nm_race_announcement_rows+nm_race_announcement_offsets[course] : practice_no_announcement;
+}
+static unsigned practice_announcement_count(unsigned course) {
+    return course<3u ? nm_race_announcement_counts[course] : 1u;
+}
+
 int nm_practice_results_tick(nm_practice_scene_t *scene,unsigned results_phase,
         unsigned collision_phase,nm_race_intent_output_t *out) {
     out->count=0;
     if(!scene->results.after_podium &&
        (!nm_race_scene_results_field(&scene->race,scene->math,&scene->road,results_phase,scene->results.penalty,
             collision_phase,0,scene->transmission) ||
-        !nm_race_scene_events(&scene->race,nm_race_intent_rows,57,nm_race_intent_alternate[scene->course],nm_race_intent_special[NM_RACE_INTENT_UNIT],
-            nm_race_announcement_rows+nm_race_announcement_offsets[scene->course],nm_race_announcement_counts[scene->course],
+        !nm_race_scene_events(&scene->race,nm_race_intent_rows,57,nm_race_intent_alternate[nm_course_arcade(scene->course)],nm_race_intent_special[PRACTICE_INTENT_UNIT],
+            practice_announcements(scene->course),practice_announcement_count(scene->course),
             nm_race_announcement_ranks,scene->results.penalty,out))) return 0;
     /* The world actors of the race's pool (Expert's, include/expert_actors.h) run on through these results, START edges
      * included; after a podium no task reads them. */
@@ -292,9 +371,10 @@ static int practice_reset_session(const nm_player_t *previous) {
     practice_difficulty=nm_game_settings()->difficulty;
 #endif
     nm_memset(&practice.state,0,sizeof(practice.state));nm_memset(&practice.intro,0,sizeof(practice.intro));
-    /* The loaded course's start camera, pit cameras and pit stop (race_start_data.h nm_race_course_starts). */
-    const nm_race_course_start_t *tables=nm_race_course_starts+practice.course;
-    if(practice.course>2 || !tables->tracks || practice.road.slot!=practice.course) return 0;
+    /* The loaded course's start camera, pit cameras and pit stop (race_start_data.h nm_race_course_starts; the Circuit
+     * Edition courses take Advanced's: course_assets.h nm_course_arcade). */
+    const nm_race_course_start_t *tables=nm_race_course_starts+nm_course_arcade(practice.course);
+    if(practice.course>=NM_COURSE_SLOTS || !tables->tracks || practice.road.slot!=practice.course) return 0;
     practice_cameras.tracks=tables->tracks;practice_cameras.tunnel=tables->tunnel;
 #ifdef NM_RACE_VIEW_DATA
     practice_cameras.pit_views=tables->pit_views;
@@ -328,6 +408,9 @@ static int practice_reset_session(const nm_player_t *previous) {
 
 static int practice_reset_attract(void) {
     practice.transmission=0; /* The attract's car is the automatic one (intro_scene.h curve 0). */
+#ifdef DAYTONA_PC
+    pc_horse_race_end(); /* the attract's car is the arcade's */
+#endif
     nm_memset(&practice.state,0,sizeof(practice.state));
     nm_memset(&practice.race,0,sizeof(practice.race));
     nm_memset(&practice.results,0,sizeof(practice.results));practice.podium=(nm_podium_t){0};
@@ -335,7 +418,8 @@ static int practice_reset_attract(void) {
     if(practice.course>2 || !graph->stages ||
        !nm_intro_scene_start_attract(&practice.intro,graph->stages,graph->count,practice.math,&practice.road,practice.intro_paths) ||
        !nm_attract_carry_into_cinematic(&practice.intro,&practice_pool,&practice.road)) return 0;
-    nm_intro_scene_light(&practice.intro,nm_race_course_starts[practice.course].tunnel); /* the course's tunnel ranges */
+    /* the course's tunnel ranges (by profile: none on the Circuit Edition courses) */
+    nm_intro_scene_light(&practice.intro,practice.course<3u ? nm_race_course_starts[practice.course].tunnel : NULL);
     if(!nm_intro_scene_detail(&practice.intro,practice.math,&practice.scenery)) return 0;
     practice.race_bodies=0;
     NM_COPY(&practice.state.car,&practice.intro.cars[0]);
@@ -359,7 +443,7 @@ static void practice_course_unload(void) {
  * packs is free and the new packs take the top of the heap (heap.h). */
 static int practice_course_load(unsigned course) {
     if(practice.course_loaded && practice.course==course) return 1;
-    if(course>2 || !practice_root) return 0;
+    if(course>=NM_COURSE_SLOTS || !practice_root) return 0;
     nm_practice_render_unload(&practice);
     practice_course_unload();
     char file[256];
@@ -392,8 +476,9 @@ static int practice_course_load(unsigned course) {
 /* The front end's course choice: the slot (0 Beginner, 1 Expert, 2 Advanced) the next race starts on.
  * Refuses a course the race-start header does not hold; the packs are checked when that race loads. */
 int nm_practice_course_select(unsigned course) {
-    if(course>2 || !(NM_RACE_START_COURSES>>course&1u) || !nm_race_course_starts[course].tracks ||
-       !(NM_PODIUM_COURSES>>course&1u) || !nm_podium_courses[course].stages) return 0;
+    const unsigned tables=nm_course_arcade(course);   /* the ROM tables it races with */
+    if(course>=NM_COURSE_SLOTS || !(NM_RACE_START_COURSES>>tables&1u) || !nm_race_course_starts[tables].tracks ||
+       !(NM_PODIUM_COURSES>>tables&1u) || !nm_podium_courses[tables].stages) return 0;
     practice_race_course=course;return 1;
 }
 
@@ -461,6 +546,9 @@ int nm_practice_restart_from_title(void) {
         }
     }
 #endif
+#ifdef DAYTONA_PC
+    pc_horse_race_begin(practice.transmission);
+#endif
     /* From the title: the course chosen last (the select's, else NATIVE_COURSE's). */
     nm_sound_command(NM_MUSIC_GAME_START); /* The credit's game start (phase 12), which no select sent. */
     return practice_race_load(stage);
@@ -473,12 +561,18 @@ fail:
  * when this build carries its data), and the start state the front end carried. */
 int nm_practice_race_from_select(unsigned course,unsigned transmission) {
     if(!practice_root || practice.failed) return 0;
+#ifdef DAYTONA_PC
+    pc_saturn_race_mode(1); /* the menus' GAME MODE applies (pc_saturn_options.h) */
+#endif
     practice.last_us=practice.update_max_us=practice.frame_window_us=0;practice.frame_clock=(nm_frame_clock_t){0};
     practice.intervals=practice.frame_tenths_ms=0;practice.inspect_paused=0;
     practice.work_last_us=practice.work_window_us=practice.render_window_us=0;
     practice.work_tenths_ms=practice.render_tenths_ms=practice.late_frames=0;practice.late_flip=practice.late_vblank=0;
     practice.attract_active=0;
     practice.transmission=transmission&1u;
+#ifdef DAYTONA_PC
+    pc_horse_race_begin(practice.transmission);
+#endif
     /* The course raced: the chosen one when this build carries its data (select_mode.c NATIVE_COURSES) and its
      * race-start and podium tables, else course 0. */
     const unsigned raced=nm_select_course_raced(course);
@@ -568,6 +662,9 @@ void nm_practice_attract_abandon(void) {
 }
 
 int nm_practice_attract_start(void) {
+#ifdef DAYTONA_PC
+    pc_saturn_race_mode(0);
+#endif
     if(!practice_root || practice.failed) return 0;
 #ifdef NM_ATTRACT_LOOPS
     /* make NATIVE_ATTRACT_LOOPS=N (a measurement build): N cinematics with their titles, then the run ends. */
@@ -814,6 +911,41 @@ static void practice_update(void *unused) {
     /* The simulation's time: one tick per displayed frame, plus the vblanks a late frame missed (frame_clock.h).
      * The wall-clock interval above is a diagnostic only. */
     const uint32_t frame_us=nm_frame_ticks(&practice.frame_clock)*NM_PRACTICE_TICK_US;
+#ifdef DAYTONA_PC
+    if (pc_pause.active) {
+        /* Circuit Edition's pause (pc_saturn_menu.h): the race frozen under EXIT ? YES / NO / RESTART. Up and down
+         * stop at the ends, Start (or A) confirms; NO goes on, YES leaves for the main menu, RESTART races again. */
+        enj_ctrlr_state_t **pads = enj_ctrl_get_states();
+        int choice = -1;
+        for (size_t i=0; i<enj_ctrl_states_length(); ++i) if (pads[i]) {
+            const enj_ctrlr_state_t *c = pads[i];
+            if (c->button.UP == ENJ_BUTTON_DOWN_THIS_FRAME && pc_pause.cursor > 0) --pc_pause.cursor;
+            if (c->button.DOWN == ENJ_BUTTON_DOWN_THIS_FRAME && pc_pause.cursor < 2) ++pc_pause.cursor;
+            if (c->button.START == ENJ_BUTTON_DOWN_THIS_FRAME || c->button.A == ENJ_BUTTON_DOWN_THIS_FRAME)
+                choice = (int)pc_pause.cursor;
+            break;
+        }
+        if (choice == 1) {
+            pc_pause.active = 0;
+            pc_sound_pause(0);
+            puts("Saturn pause: NO, the race goes on");
+            nm_frame_ticks(&practice.frame_clock); /* the paused frames add no ticks */
+        } else if (choice == 0 || choice == 2) {
+            const unsigned course = practice.course, transmission = practice.transmission;
+            pc_pause.active = 0;
+            pc_sound_pause(0);
+            nm_sound_command(NM_MUSIC_FADE);
+            printf("Saturn pause: %s\n", choice ? "RESTART" : "YES, back to the main menu");
+            nm_practice_render_release();
+            if (!pc_saturn_pause_release()) { enj_state_flag_shutdown(NULL); return; }
+            if (choice == 0) { if (!pc_saturn_menu_start()) enj_state_flag_shutdown(NULL); }
+            else if (!nm_practice_race_from_select(course, transmission)) enj_state_flag_shutdown(NULL);
+            return;
+        }
+        if (!nm_practice_render_enqueue(&practice) || !pc_saturn_pause_enqueue(pc_pause.cursor)) practice.failed=1;
+        return;
+    }
+#endif
     if (practice.inspect_paused) {
         /* Keep latching input/rendering, but don't advance or reset gameplay.
          * Refresh last_us above so resuming never catches up paused time.
@@ -880,13 +1012,28 @@ static void practice_update(void *unused) {
         /* The stick through the steering table (include/steer_curve.h: dead zone, power curve, full lock at the
          * ends) into the existing arcade ADC decoder; the triggers over their full ranges. The decoder and the
          * race after it stay the arcade's. */
-        controls = nm_controls_decode(nm_steer_table_adc(practice_steer_table,c->joyx),
+#ifdef DAYTONA_PC
+        /* PC: the pad stick through a model of the cabinet wheel's speed-dependent spring, keys against that
+         * spring, a real wheel direct (platform/pc-native/backend/pc_steering.cpp); the decoder as before. */
+        const uint8_t steer_adc = pc_steer_adc((unsigned)i, c->joyx, practice.state.car.speed_index);
+#else
+        const uint8_t steer_adc = nm_steer_table_adc(practice_steer_table,c->joyx);
+#endif
+        controls = nm_controls_decode(steer_adc,
             (uint8_t)(56+(unsigned)c->rtrigger*128/255),
             (uint8_t)(56+(unsigned)c->ltrigger*96/255),
             practice.controller_last.accel,practice.controller_last.brake);
         ++practice.controller_samples;practice.controller_last=controls;
+#ifdef DAYTONA_PC
+        /* The Saturn's horse code (pc_horse.h): START with Up+Left+A+B+X+Y held, at the title or in the attract. */
+        if(practice.attract_active && !practice.podium.phase) (void)pc_horse_title_code(c->button.raw);
+#endif
         if(practice.attract_active && !practice.podium.phase &&
-           (c->button.START==ENJ_BUTTON_DOWN_THIS_FRAME || c->button.A==ENJ_BUTTON_DOWN_THIS_FRAME)) {
+           (c->button.START==ENJ_BUTTON_DOWN_THIS_FRAME || (c->button.A==ENJ_BUTTON_DOWN_THIS_FRAME
+#ifdef DAYTONA_PC
+            && !pc_horse_chord_held(c->button.raw)
+#endif
+           ))) {
             /* Both triggers and START: the settings screen; else the credit (1108 -> 2818), taken by the next
              * cinematic tick (gameplay/select_mode.h). */
             if(nm_select_attract_button(c->button.START==ENJ_BUTTON_DOWN_THIS_FRAME,c->ltrigger,c->rtrigger)) return;
@@ -895,6 +1042,23 @@ static void practice_update(void *unused) {
         /* The race, the podium and the results (the attract's START is the credit above).
          * Latched until a tick consumes it (frames carry 0..4 ticks). */
         if((!practice.attract_active || practice.podium.phase) && c->button.START==ENJ_BUTTON_DOWN_THIS_FRAME) practice.start_pending=1;
+#ifdef DAYTONA_PC
+        /* The pause: a tap of START (released with no other button pressed while it was down: START + direction
+         * and START + B stay the view, HUD and inspector chords), in the race until its end (CCE: not after it). */
+        if(!practice.attract_active && !practice.podium.phase && !practice.results.mode && practice.race.active_phase<=22 &&
+           pc_saturn_menu_available()) {
+            if(c->button.START==ENJ_BUTTON_DOWN_THIS_FRAME) { pc_pause.start_down=1; pc_pause.start_clean=1; }
+            else if(c->button.START&1u) { if(c->button.raw&0x55555u&~(1u<<16)) pc_pause.start_clean=0; }
+            else if(pc_pause.start_down) {
+                pc_pause.start_down=0;
+                if(pc_pause.start_clean && pc_saturn_pause_load()) {
+                    pc_pause.active=1; pc_pause.cursor=1; /* CCE: the cursor on NO */
+                    pc_sound_pause(1);
+                    puts("Saturn pause: up");
+                }
+            }
+        }
+#endif
         practice.results.start_held=(uint8_t)(c->button.START&1u);
         /* Manual: one gear up or down per press, latched like START. */
         if(!practice.attract_active && practice.transmission) {
@@ -1127,6 +1291,23 @@ static void practice_update(void *unused) {
         input.active.variant=(uint8_t)((practice.race.counter_base+practice.race.ticks)&1u);
         /* Race sound commands: audio/race_sound_hooks.h, one call per hook. */
         const uint32_t countdown=nm_race_sound_hook_before(&practice.race,practice.road.profile_count);
+#ifdef DAYTONA_PC
+        pc_horse_tick(practice.race.cars[0].car.speed_index); /* the gallop and its hoof sounds */
+#endif
+#ifdef DAYTONA_PC
+        {   /* DAYTONA_DEBUG_PLAYER=1: the player's road state once a second (course work). */
+            static int debug=-1;
+            if(debug<0) { const char *v=getenv("DAYTONA_DEBUG_PLAYER"); debug=v && *v=='1'; }
+            const nm_player_t *pl=&practice.race.cars[0].car;
+            if(debug && !(practice.race.ticks%60u))
+                printf("PLAYER tick=%u profile=%u pos=%.1f,%.1f,%.1f heading=%d road=%u speed=%d rolling=%u flags=%08x lap=%d v=%.3f lateral=%d offset=%u recovery=%d mask=%x\n",
+                    (unsigned)practice.race.ticks,(unsigned)(uint16_t)pl->phase[0],pl->boundary.ground.position[0],
+                    pl->boundary.ground.position[1],pl->boundary.ground.position[2],(int)pl->boundary.heading,
+                    (unsigned)pl->boundary.ground.road,(int)pl->speed_index,(unsigned)practice.race.rolling[0],
+                    (unsigned)practice.race.shared.flags,(int)(int8_t)pl->lap.lap,pl->boundary.speed,(int)pl->lateral.current,
+                    (unsigned)pl->path_offset,(int)pl->boundary.recovery_ticks,(unsigned)pl->boundary.ground.combined_mask);
+        }
+#endif
         const int result=nm_race_scene_step(&practice.race,practice.math,&nm_intro_speeds,&practice.contact,
             &practice.road,practice.intro_paths,&input,0,0,0,(practice.race.counter_base+practice.race.ticks)&3u,
             &practice.marks,practice.road.profile_count,nm_intro_crash_sequences[0].rows,nm_intro_crash_sequences[0].count);
@@ -1147,9 +1328,8 @@ static void practice_update(void *unused) {
             nm_race_intent_output_t out;
             practice_reject_step="race events";
             advanced=nm_race_scene_events(&practice.race,nm_race_intent_rows,57,
-                nm_race_intent_alternate[practice.course],nm_race_intent_special[NM_RACE_INTENT_UNIT],
-                nm_race_announcement_rows+nm_race_announcement_offsets[practice.course],
-                nm_race_announcement_counts[practice.course],nm_race_announcement_ranks,
+                nm_race_intent_alternate[nm_course_arcade(practice.course)],nm_race_intent_special[PRACTICE_INTENT_UNIT],
+                practice_announcements(practice.course),practice_announcement_count(practice.course),nm_race_announcement_ranks,
                 input.award.penalty,&out);
             if(advanced) {
                 practice.race_commands+=out.count;

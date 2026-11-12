@@ -19,13 +19,26 @@
  * The original's comb wipes, slide-in and palette fades (states 4-7, 12-13, 15-16) are cut: each screen
  * holds until the state that replaces it, with the same tick counts. The transmission screen's small map
  * (3D in the original: the chosen course's map at 0.644 of 0.9) is that course's lit map texture scaled into
- * the box the original draws it in. Not drawn yet: the transmission screen's two turning cars (3D). */
+ * the box the original draws it in. Not drawn yet: the transmission screen's two turning cars (3D).
+ * Five courses (the PC build's, select.h NM_SELECT_COURSES; a pack with the Circuit Edition's panels and maps,
+ * platform/pc-native/tools/prepare_select_cce.py): the five panels and maps in one row of 96-pixel columns, the
+ * panels and the ring at 5/8 of their size and the maps at 90/112, filtered; the arcade's art otherwise as is. */
 
 enum {
     ROLE_COURSE_BG = 1, ROLE_COURSE_FG, ROLE_TRANS_BG, ROLE_TRANS_FG, ROLE_GENT_TEXT, ROLE_GENT_PHOTO,
     ROLE_COURSE_RING = 8, ROLE_TRANS_RING = 9, ROLE_COURSE_PANEL = 16, ROLE_TRANS_PANEL = 24, ROLE_DIGIT = 32,
-    ROLE_DIGIT_BLANK = 42, ROLE_ARROW = 48, ROLE_SMALL_MAP = 52, ROLE_MAP = 56, ROLE_COUNT = 64
+    ROLE_DIGIT_BLANK = 42, ROLE_ARROW = 48, ROLE_SMALL_MAP = 52, ROLE_MAP = 56,
+    /* The Circuit Edition's slots 3 and 4: panels 64 + 2 (slot - 3) + variant, maps 68 + 2 (slot - 3) + lit, the
+     * transmission screen's small maps 72 + slot - 3. */
+    ROLE_CCE_PANEL = 64, ROLE_CCE_MAP = 68, ROLE_CCE_SMALL_MAP = 72, ROLE_COUNT = 80
 };
+/* The five-course row: column x, panel and map tops, their scales. */
+#define FIVE_X0 11.0f
+#define FIVE_PITCH 96.0f
+#define FIVE_PANEL_Y 90.0f
+#define FIVE_MAP_Y 152.0f
+#define FIVE_PANEL_SCALE 0.625f
+#define FIVE_MAP_SCALE (90.0f / 112.0f)
 enum { SELECT_MAX_TEXTURES = 160, SELECT_MAX_QUADS = 256, SELECT_MAX_PALETTES = 64 };
 
 typedef struct { uint16_t width, height, palette, opaque; uint32_t bytes; } select_texture_t;
@@ -33,13 +46,15 @@ typedef struct { uint16_t texture; int16_t x, y; uint16_t width, height, u, v, r
 
 static enj_texture_info_t textures[SELECT_MAX_TEXTURES];
 alignas(32) static pvr_poly_hdr_t headers[SELECT_MAX_TEXTURES];
+alignas(32) static pvr_poly_hdr_t filtered[SELECT_MAX_TEXTURES];   /* the same, bilinear: drawn scaled */
 static select_texture_t texture_info[SELECT_MAX_TEXTURES];
 static select_quad_t quads[SELECT_MAX_QUADS];
-static unsigned texture_count, quad_count, loaded;
+static unsigned texture_count, quad_count, loaded, five;
 static int32_t anchors[4];
+static int16_t panel0[2];   /* slot 0's panel in the arcade's layout (its frame anchor's panel) */
 /* This frame's pose (set by nm_select_render_enqueue, read by the list callbacks). */
 static struct {
-    uint32_t roles[2]; /* bit set of the roles drawn (ROLE_COUNT bits) */
+    uint32_t roles[(ROLE_COUNT + 31) / 32]; /* bit set of the roles drawn (ROLE_COUNT bits) */
     int16_t ring_dx, ring_dy;
     unsigned tens, units, digits;
 } pose;
@@ -51,6 +66,7 @@ static int role_is_on(unsigned role) { return role < ROLE_COUNT && (pose.roles[r
 /* Painter order inside the screen: layer 2, maps, ring, panels, layer 0, arrows, digits (depth grows). */
 static float role_depth(unsigned role) {
     if (role == ROLE_COURSE_BG || role == ROLE_TRANS_BG || role == ROLE_GENT_TEXT) return 1.0f;
+    if (role >= ROLE_CCE_PANEL && role < ROLE_CCE_MAP) return 4.0f;
     if (role >= ROLE_SMALL_MAP) return 2.0f;
     if (role == ROLE_COURSE_RING || role == ROLE_TRANS_RING) return 3.0f;
     if (role >= ROLE_COURSE_PANEL && role < ROLE_DIGIT) return 4.0f;
@@ -60,15 +76,20 @@ static float role_depth(unsigned role) {
     return 7.0f;
 }
 
-static void quad(const select_quad_t *q, float x, float y) {
+static int small_map(unsigned role) {
+    return (role >= ROLE_SMALL_MAP && role < ROLE_MAP) || (role >= ROLE_CCE_SMALL_MAP && role < ROLE_COUNT);
+}
+
+/* k: the quad's size against its texels'. */
+static void quad(const select_quad_t *q, float x, float y, float k) {
     const select_texture_t *t = texture_info + q->texture;
     const float z = role_depth(q->role);
     /* The small maps scale a map's texture: their u/v hold the source extent, drawn from texel 0. */
-    const int scaled = q->role >= ROLE_SMALL_MAP && q->role < ROLE_MAP;
+    const int scaled = small_map(q->role);
     for (unsigned corner = 0; corner < 4; ++corner) {
         const unsigned dx = corner >= 2 ? q->width : 0, dy = corner & 1 ? 0 : q->height;
         const unsigned su = scaled ? (corner >= 2 ? q->u : 0) : q->u + dx, sv = scaled ? (corner & 1 ? 0 : q->v) : q->v + dy;
-        const shz_vec4_t p = shz_xmtrx_transform_vec4(shz_vec4_init(x + dx, y + dy, z, 1));
+        const shz_vec4_t p = shz_xmtrx_transform_vec4(shz_vec4_init(x + k * (float)dx, y + k * (float)dy, z, 1));
         pvr_vertex_t *v = pvr_dr_target();
         *v = (pvr_vertex_t){.flags = corner == 3 ? PVR_CMD_VERTEX_EOL : PVR_CMD_VERTEX, .x = p.x, .y = p.y, .z = p.z,
             .u = (float)su / t->width, .v = (float)sv / t->height, .argb = 0xffffffff};
@@ -76,9 +97,31 @@ static void quad(const select_quad_t *q, float x, float y) {
     }
 }
 
+/* Where a quad goes in the five-course row (and its scale); 0 for the quads it leaves where they are. */
+static int five_place(const select_quad_t *q, float *x, float *y, float *k) {
+    unsigned slot;
+    if (q->role >= ROLE_COURSE_PANEL && q->role < ROLE_COURSE_PANEL + 6) slot = (q->role - ROLE_COURSE_PANEL) >> 1;
+    else if (q->role >= ROLE_CCE_PANEL && q->role < ROLE_CCE_MAP) slot = 3 + ((q->role - ROLE_CCE_PANEL) >> 1);
+    else if (q->role >= ROLE_MAP && q->role < ROLE_MAP + 6) slot = 8 + ((q->role - ROLE_MAP) >> 1);
+    else if (q->role >= ROLE_CCE_MAP && q->role < ROLE_CCE_SMALL_MAP) slot = 11 + ((q->role - ROLE_CCE_MAP) >> 1);
+    else if (q->role == ROLE_COURSE_RING) {
+        /* The ring around the gliding panel: its top left the frame - anchor + slot 0's arcade panel. */
+        const float px = (float)panel0[0] + (float)pose.ring_dx, py = (float)panel0[1] + (float)pose.ring_dy;
+        *k = FIVE_PANEL_SCALE;
+        *x = px + FIVE_PANEL_SCALE * (float)(q->x - panel0[0]);
+        *y = py + FIVE_PANEL_SCALE * (float)(q->y - panel0[1]);
+        return 1;
+    } else return 0;
+    const int map = slot >= 8;
+    *x = FIVE_X0 + FIVE_PITCH * (float)(map ? slot - 8 : slot);
+    *y = map ? FIVE_MAP_Y : FIVE_PANEL_Y;
+    *k = map ? FIVE_MAP_SCALE : FIVE_PANEL_SCALE;
+    return 1;
+}
+
 static void render(void *data) {
     const unsigned opaque = (unsigned)(uintptr_t)data;
-    unsigned previous = SELECT_MAX_TEXTURES;
+    unsigned previous = ~0u;
     shz_xmtrx_init_scale((640.0f / 496.0f) * ENJ_XSCALE, 480.0f / 384.0f, 1.0f);
     for (unsigned i = 0; i < quad_count; ++i) {
         const select_quad_t *q = quads + i;
@@ -93,17 +136,20 @@ static void render(void *data) {
                     pvr_poly_hdr_t *h = pvr_dr_target(); *h = headers[q->texture]; pvr_dr_commit(h);
                     previous = q->texture;
                 }
-                quad(q, 432.0f + 24.0f * place, 24.0f);
+                quad(q, 432.0f + 24.0f * place, 24.0f, 1.0f);
             }
             continue;
         }
         if (!role_is_on(q->role)) continue;
-        if (q->role == ROLE_COURSE_RING || q->role == ROLE_TRANS_RING) { x += pose.ring_dx; y += pose.ring_dy; }
-        if (q->texture != previous) {
-            pvr_poly_hdr_t *h = pvr_dr_target(); *h = headers[q->texture]; pvr_dr_commit(h);
-            previous = q->texture;
+        float k = 1.0f;
+        if (five && five_place(q, &x, &y, &k)) {
+        } else if (q->role == ROLE_COURSE_RING || q->role == ROLE_TRANS_RING) { x += pose.ring_dx; y += pose.ring_dy; }
+        const unsigned header = q->texture * 2u + (k != 1.0f);
+        if (header != previous) {
+            pvr_poly_hdr_t *h = pvr_dr_target(); *h = k != 1.0f ? filtered[q->texture] : headers[q->texture]; pvr_dr_commit(h);
+            previous = header;
         }
-        quad(q, x, y);
+        quad(q, x, y, k);
     }
 }
 
@@ -143,8 +189,12 @@ int nm_select_render_load(const char *root) {
         if (!nm_palette_ram_write(16 * b, colours, 16, "select palette")) goto fail;
     }
     nm_memcpy(quads, p, 16 * quads_n);
-    for (unsigned i = 0; i < quads_n; ++i)
+    five = 0; panel0[0] = 24; panel0[1] = 72;
+    for (unsigned i = 0; i < quads_n; ++i) {
         if (quads[i].texture >= textures_n || quads[i].role >= ROLE_COUNT) goto fail;
+        if (quads[i].role >= ROLE_CCE_PANEL) five = NM_SELECT_COURSES == 5u;
+        if (quads[i].role == ROLE_COURSE_PANEL) { panel0[0] = quads[i].x; panel0[1] = quads[i].y; }
+    }
     for (unsigned i = 0; i < textures_n; ++i) {
         const select_texture_t *t = texture_info + i;
         void *blob = NULL; size_t bytes = 0;
@@ -160,10 +210,12 @@ int nm_select_render_load(const char *root) {
             textures[i].width, textures[i].height, fDtAdjustPVRPointer(&textures[i].hdr, textures[i].ptr), PVR_FILTER_NONE);
         context.gen.culling = PVR_CULLING_NONE; context.depth.comparison = PVR_DEPTHCMP_GEQUAL;
         pvr_poly_compile(headers + i, &context);
+        context.txr.filter = PVR_FILTER_BILINEAR;
+        pvr_poly_compile(filtered + i, &context);
     }
     quad_count = quads_n; free(layout); loaded = 1; frames = 0;
-    printf("Native select screens: %u PAL4 textures, %u palette banks, %u quads; PVR free=%lu\n",
-        texture_count, (unsigned)palettes_n, quad_count, (unsigned long)pvr_mem_available());
+    printf("Native select screens: %u PAL4 textures, %u palette banks, %u quads%s; PVR free=%lu\n",
+        texture_count, (unsigned)palettes_n, quad_count, five ? ", five courses" : "", (unsigned long)pvr_mem_available());
     return 1;
 fail:
     free(layout);
@@ -178,9 +230,11 @@ int nm_select_render_enqueue(const nm_select_t *s, uint32_t counter) {
     const unsigned st = s->state, blink = (counter & 7u) > 4u, odd = counter & 1u;
     if (st <= 5) {
         role_on(ROLE_COURSE_BG); role_on(ROLE_COURSE_FG);
-        for (unsigned slot = 0; slot < 3; ++slot) {
-            role_on(ROLE_MAP + 2 * slot + (slot == s->slot));
-            role_on(ROLE_COURSE_PANEL + 2 * slot + (slot == s->slot && blink && st <= 3));
+        for (unsigned slot = 0; slot < (five ? 5u : 3u); ++slot) {
+            const unsigned panel = slot < 3 ? ROLE_COURSE_PANEL + 2 * slot : ROLE_CCE_PANEL + 2 * (slot - 3);
+            const unsigned map = slot < 3 ? ROLE_MAP + 2 * slot : ROLE_CCE_MAP + 2 * (slot - 3);
+            role_on(map + (slot == s->slot));
+            role_on(panel + (slot == s->slot && blink && st <= 3));
         }
         if (st <= 2 || (st == 3 && odd)) role_on(ROLE_COURSE_RING);
         pose.ring_dx = (int16_t)(s->frame[0] - anchors[0]); pose.ring_dy = (int16_t)(s->frame[1] - anchors[1]);
@@ -191,7 +245,7 @@ int nm_select_render_enqueue(const nm_select_t *s, uint32_t counter) {
         for (unsigned slot = 0; slot < 2; ++slot)
             role_on(ROLE_TRANS_PANEL + 2 * slot + (st >= 8 && slot == cursor && blink && st <= 11));
         role_on(ROLE_ARROW + (cursor & 1u));
-        role_on(ROLE_SMALL_MAP + (s->chosen < 3 ? s->chosen : 0u));
+        role_on(s->chosen < 3 ? ROLE_SMALL_MAP + s->chosen : five && s->chosen < 5 ? ROLE_CCE_SMALL_MAP + s->chosen - 3u : ROLE_SMALL_MAP);
         if ((st >= 8 && st <= 10) || (st == 11 && odd)) role_on(ROLE_TRANS_RING);
         pose.ring_dx = (int16_t)(s->frame[0] - anchors[2]); pose.ring_dy = (int16_t)(s->frame[1] - anchors[3]);
         pose.digits = st == 9;
@@ -209,6 +263,8 @@ int nm_select_render_enqueue(const nm_select_t *s, uint32_t counter) {
     enj_render_list_add(PVR_LIST_PT_POLY, render, NULL);
     return 1;
 }
+
+unsigned nm_select_render_courses(void) { return loaded && five ? 5u : 3u; }
 
 int nm_select_render_release(void) {
     if (!loaded) return 1;

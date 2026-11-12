@@ -6,7 +6,8 @@
 /* Offline-decoded 1727c probe tables: four camera quadrants, two groups of
  * six points/masks per quadrant. No guest addresses or TGP FIFO on target. */
 typedef struct { float x, z; uint32_t mask; } nm_scenery_probe_t;
-typedef struct { uint8_t draw[25], near[10], draw_count, near_count; } nm_scenery_cells_t;
+/* centre: the cell the 5x5 was chosen around (the PC build's draw distance widens the drawn list from it). */
+typedef struct { uint8_t draw[25], near[10], draw_count, near_count, centre; } nm_scenery_cells_t;
 /* Original501520..50155f: eight draw words followed by eight near words,
  * not one512-cell visibility map. Existing selection has already clipped the
  * ordered lists. Integer set membership only; no presentation approximation. */
@@ -62,6 +63,7 @@ static inline int nm_scenery_cells(const uint8_t order[25], unsigned cell,
         seen|=1u<<order[i];
     }
     nm_scenery_cells_t result; nm_memset(&result,0,sizeof(result));
+    result.centre=(uint8_t)cell;
     for (unsigned i=0;i<25;++i) {
         const unsigned bit=order[i];
         const int x=(int)(cell&15)+(int)(bit%5)-2;

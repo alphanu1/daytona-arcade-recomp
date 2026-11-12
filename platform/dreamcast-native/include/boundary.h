@@ -4,6 +4,9 @@
 #include "force_math.h"
 #include "wheels.h"
 #include "damage.h"
+#ifdef DAYTONA_PC
+#include "pc_horse.h"
+#endif
 
 enum { NM_BOUNDARY_NONE, NM_BOUNDARY_RECOVER, NM_BOUNDARY_PIVOT, NM_BOUNDARY_SPIN };
 typedef struct {
@@ -233,7 +236,11 @@ static inline int nm_boundary_pivot(const nm_drive_params_t *p,
             result.condition = 16;
             int32_t signed_speed; nm_memcpy(&signed_speed,&speed_index,4);
             if (sides[result.side] && signed_speed >= 31) {
+#ifdef DAYTONA_PC
+                result.speed = result.speed*pc_horse_wall_factor(p); /* the Saturn horse loses more */
+#else
                 result.speed = result.speed*0.8f;
+#endif
                 result.sound_request = 1;
                 if (!result.shake_ticks) result.shake_ticks = 24;
             }
@@ -248,9 +255,10 @@ static inline int nm_boundary_pivot(const nm_drive_params_t *p,
 static inline int nm_boundary_pivot_course(const nm_drive_params_t *p,
         const nm_contact_pack_t *pack, uint32_t selected, const nm_wheels_state_t *wheels,
         uint32_t speed_index, uint8_t lap, nm_boundary_pivot_t *state) {
-    if (!p || !pack || pack->slot >= 4 || !pack->quads || selected >= pack->quad_count) return 0;
+    if (!p || !pack || pack->slot >= 5 || !pack->quads || selected >= pack->quad_count) return 0;
+    /* The PC build's Circuit Edition slots 3, 4 take Advanced's divisors (course_assets.h nm_course_arcade). */
     return nm_boundary_pivot(p,pack->quads+selected,selected,wheels,p->pivot_sides,
-                            speed_index,p->pivot_divisor[pack->slot][lap],state);
+                            speed_index,p->pivot_divisor[pack->slot < 3 ? pack->slot : 2][lap],state);
 }
 
 typedef struct {

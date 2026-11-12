@@ -76,13 +76,13 @@ static inline int nm_race_detail_step(const float view[12],const nm_scenery_cell
 static inline int nm_car_detail_guided_mode(const uint8_t level[44],unsigned count,
         uint32_t flags,uint32_t hold,unsigned course,uint8_t *out) {
     static const uint8_t shift[4]={2,1,2,0};
-    if(!level || !out || !count || count>44 || course>3) return 0;
+    if(!level || !out || !count || count>44 || course>4) return 0;
     unsigned drawn=32;
     if((flags&UINT32_C(0x117800a8)) && (int32_t)hold<=1) {
         drawn=0;
         for(unsigned i=1;i<count;++i) drawn+=level[i]!=0;
     }
-    *out=(uint8_t)(drawn>>shift[course]);
+    *out=(uint8_t)(drawn>>shift[course<4u ? course : 2u]);   /* (PC slot 4: Advanced's) */
     return 1;
 }
 #endif

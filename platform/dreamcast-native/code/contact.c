@@ -24,7 +24,7 @@ int nm_contact_load(nm_contact_pack_t *p, const char *path) {
     nm_contact_pack_t next = {0};
     uint32_t h[8];
     int ok = !setvbuf(f,NULL,_IOFBF,64*1024) && fread(h,1,sizeof(h),f) == sizeof(h) &&
-        h[0] == 0x33434e44 && h[2] < 4 && h[3] && h[3] <= 65536 &&
+        h[0] == 0x33434e44 && h[2] < 5 && h[3] && h[3] <= 65536 &&   /* slots 0..4: the PC build's Circuit Edition courses too */
         h[4] && h[4] <= 8192 && h[5] && h[5] <= 33 && !h[6] && !h[7];
     if (ok) {
         const uint32_t quad_offset = (32768+2*h[3]+3)&~3u;

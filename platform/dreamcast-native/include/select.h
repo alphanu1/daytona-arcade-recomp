@@ -71,16 +71,35 @@ typedef struct {
     uint32_t time_attack; /* 501a80 */
 } nm_select_t;
 
+/* The PC build's course select offers the Circuit Edition's courses too (slots 3 National Park, 4 Desert City,
+ * the courses of the same numbers; code/render/ui/select_render.c lays the five out in one row): the wheel's
+ * range in five, the frame's targets the five panels' (in the arcade's frame coordinates: a panel's top left
+ * + (71, 324), as the arcade's 23add4 against its panels), no voice for the new two (the arcade has none: the
+ * selection's sound only), and the standing start's call (as Advanced and Expert). */
+#ifdef DAYTONA_PC
+#define NM_SELECT_COURSES 5u
+#else
+#define NM_SELECT_COURSES 3u
+#endif
 /* 23add4 / 23ae88 (+0, +4): the highlight frame's target per slot; 23addc (+8): the course of a slot. */
+#if NM_SELECT_COURSES == 5u
+static const int32_t nm_select_course_frame[5][2] = {{82, 414}, {178, 414}, {274, 414}, {370, 414}, {466, 414}};
+static const uint8_t nm_select_course_of_slot[5] = {0, 2, 1, 3, 4};
+#else
 static const int32_t nm_select_course_frame[3][2] = {{95, 396}, {247, 396}, {399, 396}};
-static const int32_t nm_select_transmission_frame[2][2] = {{111, 388}, {381, 388}};
 static const uint8_t nm_select_course_of_slot[3] = {0, 2, 1};
+#endif
+static const int32_t nm_select_transmission_frame[2][2] = {{111, 388}, {381, 388}};
 /* Voices: 23b504 per course slot, 23b514 per transmission, 23b53c with time attack (53e59a bit 0),
- * 23b52c the course's "gentlemen" call. */
-static const uint32_t nm_select_course_voice[3] = {0xae215e, 0xae215f, 0xae2160};
+ * 23b52c the course's "gentlemen" call. 0: none. */
+static const uint32_t nm_select_course_voice[NM_SELECT_COURSES] = {0xae215e, 0xae215f, 0xae2160};
 static const uint32_t nm_select_transmission_voice[2] = {0xae215d, 0xae215c};
 static const uint32_t nm_select_time_attack_voice[2] = {0xae2173, 0xae221c};
-static const uint32_t nm_select_course_call[3] = {0xae2112, 0xae2113, 0xae2113};
+static const uint32_t nm_select_course_call[NM_SELECT_COURSES] = {0xae2112, 0xae2113, 0xae2113
+#if NM_SELECT_COURSES == 5u
+    , 0xae2113, 0xae2113
+#endif
+};
 enum {
     NM_SELECT_TIMER = 640,          /* 225324 / 225494: 5 << 7 */
     NM_SELECT_CONFIRM_AFTER = 0x270, /* 22579c: the transmission accepts an edge once +56 <= 624 */
@@ -91,7 +110,7 @@ enum {
 };
 
 static inline void nm_select_sound(nm_select_output_t *out, uint32_t command) {
-    if (out->sounds < NM_SELECT_SOUNDS) out->sound[out->sounds++] = command;
+    if (command && out->sounds < NM_SELECT_SOUNDS) out->sound[out->sounds++] = command;
 }
 
 /* 2259ec: the highlight frame glides toward the slot's target, half the distance a call, clamped to
@@ -104,12 +123,22 @@ static inline void nm_select_glide(nm_select_t *s, const int32_t target[2]) {
     }
 }
 static inline void nm_select_course_glide(nm_select_t *s) {
-    nm_select_glide(s, nm_select_course_frame[s->slot < 3 ? s->slot : 0]);
+    nm_select_glide(s, nm_select_course_frame[s->slot < NM_SELECT_COURSES ? s->slot : 0]);
 }
 /* 225b6c (the transmission screen's cars): +5a += 128, then the frame glide of 2259ec beside it. */
 static inline void nm_select_transmission_glide(nm_select_t *s) {
     nm_select_glide(s, nm_select_transmission_frame[s->slot < 2 ? s->slot : 0]);
     s->spin = (uint16_t)(s->spin + 128u);
+}
+
+/* The course slot of a wheel position (2253ac): <= 0, 1..108, above; five courses (PC): <= 0, 1..72, 73..144,
+ * 145..200, above (the decoded wheel reaches 255). */
+static inline uint16_t nm_select_course_slot(int32_t wheel) {
+#if NM_SELECT_COURSES == 5u
+    return wheel <= 0 ? 0 : wheel <= 72 ? 1 : wheel <= 144 ? 2 : wheel <= 200 ? 3 : 4;
+#else
+    return wheel <= 0 ? 0 : wheel <= NM_SELECT_COURSE_SPLIT ? 1 : 2;
+#endif
 }
 
 /* (501050 + 50105c) >> 1, addi then shri. */
@@ -152,7 +181,7 @@ static inline int nm_select_object(nm_select_t *s, const nm_select_input_t *in, 
     case 1: {
         nm_select_course_glide(s);
         const int32_t wheel = nm_select_wheel(in);
-        const uint16_t slot = wheel <= 0 ? 0 : wheel <= NM_SELECT_COURSE_SPLIT ? 1 : 2;
+        const uint16_t slot = nm_select_course_slot(wheel);
         s->slot = slot; s->chosen = (uint8_t)slot;
         s->course = nm_select_course_of_slot[slot];
         if (in->accel_edge) {
@@ -235,7 +264,7 @@ static inline int nm_select_object(nm_select_t *s, const nm_select_input_t *in, 
         if (s->phase_timer == 128) nm_select_sound(out, 0x9e037f);
         else if (s->phase_timer == 64) {
             nm_select_sound(out, 0x9e117f); nm_select_sound(out, 0xae2001);
-            nm_select_sound(out, nm_select_course_call[s->course < 3 ? s->course : 0]);
+            nm_select_sound(out, nm_select_course_call[s->course < NM_SELECT_COURSES ? s->course : 0]);
         }
         return 1;
     }

@@ -27,6 +27,13 @@
 #          and the pack checkers instead of configuring and building OUTDIR/host. Its m2segment must know --dump-video.
 # --keep   keep the three large traces (HUD, race and manual race reference, about 520 MB) after their consumers ran.
 # --jobs N parallel jobs for CMake and make (default: number of CPUs).
+# --country usa|jpn|export  the board's COUNTRY setting (test mode > GAME ASSIGNMENTS; EEPROM +1b, tools/settings_eeprom.py)
+#          for the screens it changes: the course/transmission select captures and the HUD traces run with it, so
+#          their texts are the arcade's own English ones (usa, export) and the speed is in mph (usa). Default jpn
+#          (the factory setting: expected.sha256). Changing it reruns those steps.
+# --hud-map SLOT JSON  a HUD course map for a course slot the arcade has none for (the PC build's Circuit Edition
+#          courses 3, 4): prepare_hud.py --generated-map, from platform/pc-native/tools/prepare_cce_course.py --map.
+#          Repeatable; a change reruns the HUD (and its traces when they were not kept).
 # --face-group N  faces per face group of the world packs (prepare_models.py --face-group-size; default 8 since
 #          15 October: hardware registration -0.40 ms against 32, 16 and 4 measured slower). A measurement option:
 #          other sizes do not match expected.sha256.
@@ -71,10 +78,10 @@ REPO=${RC:h:h:h}
 DN=$REPO/platform/dreamcast-native
 T=$DN/tools
 
-usage() { sed -n '2,58p' $RC/build_assets.sh | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,61p' $RC/build_assets.sh | sed 's/^# \{0,1\}//'; exit 2; }
 (( $# >= 2 )) || usage
 ROM=${1:A}; OUT=${2:A}; shift 2
-ELF=0; CHECK=0; KEEP=0; HOSTBUILD=""; MUSIC=""; NOMUSIC=0; VARIANTS=(); FACE_GROUP=8; JOBS=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
+ELF=0; CHECK=0; KEEP=0; HOSTBUILD=""; MUSIC=""; NOMUSIC=0; VARIANTS=(); FACE_GROUP=8; COUNTRY=jpn; HUDMAPS=(); JOBS=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
 while (( $# )); do
   case $1 in
     --elf) ELF=1;;
@@ -85,6 +92,8 @@ while (( $# )); do
     --host-build) HOSTBUILD=${2:A}; shift;;
     --jobs) JOBS=$2; shift;;
     --face-group) FACE_GROUP=$2; shift;;
+    --country) COUNTRY=$2; shift; [[ $COUNTRY == (usa|jpn|export) ]] || usage;;
+    --hud-map) [[ $2 == <3-> && -f $3 ]] || usage; HUDMAPS+=($2 ${3:A}); shift 2;;
     --variants) VARIANTS=(${(s:,:)2}); shift;;
     *) usage;;
   esac
@@ -231,11 +240,36 @@ for f in program main_data copro_data copro_tables polygons textures tgp_program
 done
 [[ "$($M 2>&1 || true)" == *--dump-video* ]] || { print -u2 -r -- "$M has no --dump-video: rebuild it from this checkout"; exit 2; }
 R=$ROMDIR
+# The board's country (--country): an EEPROM for the captures that show it; a change reruns them.
+CNV=()
+if [[ $( [[ -e $OUT/country ]] && cat $OUT/country || print jpn ) != $COUNTRY ]]; then   # a set made before: jpn
+  rm -f $OUT/stamps/{export_select,select_pack,trace_hud,trace_hud1,trace_hud2,trace_hud_lead,hud,assets}
+fi
+print -r -- $COUNTRY > $OUT/country
+# The generated HUD maps (--hud-map): copied into the work directory; a change remakes the HUD and the sets.
+mkdir -p $W
+HUDMAP_ARGS=()
+hudmaps_now=""
+for slot json in $HUDMAPS; do
+  cp $json $W/hud-map-$slot.json
+  HUDMAP_ARGS+=(--generated-map $slot $W/hud-map-$slot.json)
+  hudmaps_now+="$slot $(sha256sum < $W/hud-map-$slot.json)"$'\n'
+done
+if [[ "$( [[ -e $OUT/hud-maps ]] && cat $OUT/hud-maps )" != "${hudmaps_now%$'\n'}" ]]; then
+  rm -f $OUT/stamps/{hud,assets}
+  [[ -d $X/hud-trace && -d $X/hud-trace1 && -d $X/hud-trace2 && -d $X/hud-trace-lead ]] || rm -f $OUT/stamps/{trace_hud,trace_hud1,trace_hud2,trace_hud_lead}
+fi
+print -rn -- "$hudmaps_now" > $OUT/hud-maps
+if [[ $COUNTRY != jpn ]]; then
+  rm -rf $W/nvram-$COUNTRY
+  python3 $DN/tools/settings_eeprom.py $R/program.bin $W/nvram-$COUNTRY --country $COUNTRY > /dev/null
+  CNV=(--nvram $W/nvram-$COUNTRY)
+fi
 
 # ---------------------------------------------------------------------------------------------------- m2segment exports
 # The three long traces run in the background while everything else is made.
 DESC_trace_hud="HUD reference trace: 13300 frames of the scripted fast race (--trace-hud)"
-trace_hud() { fresh $X/hud-trace; $M $R 13300 --inputs $INPUTS --trace-hud $X/hud-trace 250; }
+trace_hud() { fresh $X/hud-trace; $M $R 13300 $CNV --inputs $INPUTS --trace-hud $X/hud-trace 250; }
 DESC_trace_race="race reference trace: 17500 frames of the scripted fast race (--trace-race, --trace-sound)"
 trace_race() { rm -f $X/race.trace $X/race.sound; $M $R 17500 --inputs $INPUTS --trace-race $X/race.trace --trace-sound $X/race.sound; }
 DESC_trace_manual="manual race reference trace: 17500 frames of the scripted manual race (--trace-race, --trace-sound)"
@@ -248,17 +282,17 @@ bg_step trace_race trace_race
 bg_step trace_manual trace_manual
 bg_step trace_race2 trace_race2
 DESC_trace_hud2="Advanced HUD trace: 8000 frames of the time-out run (--trace-hud), for its course map"
-trace_hud2() { fresh $X/hud-trace2; $M $R 8000 --inputs $INPUTS2 --trace-hud $X/hud-trace2 250; }
+trace_hud2() { fresh $X/hud-trace2; $M $R 8000 $CNV --inputs $INPUTS2 --trace-hud $X/hud-trace2 250; }
 bg_step trace_hud2 trace_hud2
 DESC_trace_race1="Expert reference trace: 9100 frames of the time-out run (--trace-race, --trace-clock with Expert's actors)"
 trace_race1() { rm -f $X/race-expert.trace $X/clock-expert.txt
   $M $R 9100 --inputs $INPUTS1 --trace-race $X/race-expert.trace --trace-clock $X/clock-expert.txt --trace-clock-expert; }
 bg_step trace_race1 trace_race1
 DESC_trace_hud1="Expert HUD trace: 9100 frames of the time-out run (--trace-hud), for its course map"
-trace_hud1() { fresh $X/hud-trace1; $M $R 9100 --inputs $INPUTS1 --trace-hud $X/hud-trace1 250; }
+trace_hud1() { fresh $X/hud-trace1; $M $R 9100 $CNV --inputs $INPUTS1 --trace-hud $X/hud-trace1 250; }
 bg_step trace_hud1 trace_hud1
 DESC_trace_hud_lead="Expert HUD trace: 13000 frames of the finishing race, which leads from frame 11483 (--trace-hud), for the map's marker of the second car"
-trace_hud_lead() { fresh $X/hud-trace-lead; $M $R 13000 --inputs $INPUTS1F --trace-hud $X/hud-trace-lead 250; }
+trace_hud_lead() { fresh $X/hud-trace-lead; $M $R 13000 $CNV --inputs $INPUTS1F --trace-hud $X/hud-trace-lead 250; }
 bg_step trace_hud_lead trace_hud_lead
 DESC_trace_race2f="Advanced finishing reference trace: 17800 frames of the 3rd-place race, podium and results (--trace-race, --trace-clock)"
 trace_race2f() { rm -f $X/race-advanced-finish.trace $X/clock-advanced-finish.txt
@@ -302,9 +336,9 @@ export_ui() {
 DESC_export_select="course/transmission select and GENTLEMEN screens (--export-native-select: race_to_end, course_advanced, course_expert)"
 export_select() {
   fresh $X/select-rte $X/select-adv $X/select-exp
-  $M $R 2600 --inputs $REPO/scripts/inputs/race_to_end.txt --export-native-select $X/select-rte
-  $M $R 1700 --inputs $RC/inputs/course_advanced.txt --export-native-select $X/select-adv
-  $M $R 1740 --inputs $RC/inputs/course_expert.txt --export-native-select $X/select-exp
+  $M $R 2600 $CNV --inputs $REPO/scripts/inputs/race_to_end.txt --export-native-select $X/select-rte
+  $M $R 1700 $CNV --inputs $RC/inputs/course_advanced.txt --export-native-select $X/select-adv
+  $M $R 1740 $CNV --inputs $RC/inputs/course_expert.txt --export-native-select $X/select-exp
 }
 step export_cells export_cells
 step export_cars export_cars
@@ -668,7 +702,7 @@ bg_wait trace_hud_lead
 # The HUD takes banks 60..63 (palette_banks.h): the Advanced map's colour and the lap message's font fill no free entry.
 hud() {
   fresh $HD/hud
-  python3 $T/prepare_hud.py $R $X/hud-trace $HD/hud --course-map 2 $X/hud-trace2 --course-map 1 $X/hud-trace1 --second-marker 1 $X/hud-trace-lead --first-bank 60 --max-banks 4
+  python3 $T/prepare_hud.py $R $X/hud-trace $HD/hud --course-map 2 $X/hud-trace2 --course-map 1 $X/hud-trace1 --second-marker 1 $X/hud-trace-lead --first-bank 60 --max-banks 4 --country $COUNTRY $HUDMAP_ARGS
 }
 step hud hud
 

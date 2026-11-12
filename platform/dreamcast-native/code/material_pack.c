@@ -209,11 +209,16 @@ static int open_pack(nm_material_pack_t *pack, const char *path, int cpu_backed)
         if (modulated && ((next.modulation[i] >> 24) != (palettized && b->resource != NM_MATERIAL_SOLID &&
                 nm_material_translucent(b->header) ? NM_MATERIAL_TRANSLUCENT_ALPHA : 255u) ||
             (b->resource == NM_MATERIAL_SOLID && next.modulation[i] != UINT32_MAX))) goto fail;
-        if (palettized && (b->resource == NM_MATERIAL_SOLID ? next.palette_index[i] != 255 :
+#ifdef DAYTONA_PC
+        const int direct = palettized && b->resource != NM_MATERIAL_SOLID && next.palette_index[i] == NM_MATERIAL_DIRECT;
+#else
+        const int direct = 0;
+#endif
+        if (palettized && !direct && (b->resource == NM_MATERIAL_SOLID ? next.palette_index[i] != 255 :
                            next.palette_index[i] >= next.palette_count)) goto fail;
         if (b->header[0] & 0x4000) {
             if (b->resource >= next.resources || (!crops && b->color != UINT32_MAX)) goto fail;
-            if (palettized) {
+            if (palettized && !direct) {
                 /* A punch-through binding needs a transparent entry 15. */
                 const uint8_t *keys = (const uint8_t *)next.palettes + next.palette_count*64;
                 if (((b->header[0] >> 13) & 3) == 3 && !(keys[4*next.palette_index[i]+3] >> 7)) goto fail;
@@ -296,7 +301,13 @@ int nm_material_texture_validate(const nm_material_pack_t *pack, unsigned resour
         u16(dt+12) != r->width || u16(dt+14) != r->height ||
         r->width != (8u << ((mode >> 3) & 7)) || r->height != (8u << (mode & 7))) return 0;
     const int mipmapped=!!(mode & (1u<<31));
-    if (pack->palette_index) {
+#ifdef DAYTONA_PC
+    /* A direct-colour texture of a DNT6 pack (NM_MATERIAL_DIRECT): the raw twiddled checks below. */
+    const int direct = ((mode >> 27) & 7u) <= 1u && !(mode & (1u << 30));
+#else
+    const int direct = 0;
+#endif
+    if (pack->palette_index && !direct) {
         /* DNT6: twiddled PAL4 only, 16 colours, whole 32-byte rows. A square
          * mip chain is one byte of lead-in, then 1x1 (one byte) up to the base. */
         if ((mode & ~0x80000000u) != (0x28000000u | (mode & 0x3f)) || dt[10] || dt[11] != 15 ||

@@ -107,7 +107,11 @@ static int sq_allocate(unsigned source, const nm_pack_t *pack) {
      * points in all, its frame bound 17,339: the limit holds for what one frame admits. */
     if(source && sq_world_point_bound && sq_world_point_bound<points) points=sq_world_point_bound;
     if(source && sq_world_face_bound && sq_world_face_bound<faces) faces=sq_world_face_bound;
+#ifdef DAYTONA_PC
+    if(points>(1u<<20) || faces>(1u<<20)) return 0; /* the whole course at the PC's longest draw distance */
+#else
     if(points>65536 || faces>65536) return 0;
+#endif
     /* Each admitted batch is fully initialized by sq_prepare_source. */
     sq_sources[source].batches=nm_heap_alloc(source ? "world batches" : "car batches",32,original->instances*sizeof(nm_sq_batch_t));
     sq_sources[source].points=nm_heap_alloc(source ? "world point cache" : "car point cache",32,points*sizeof(nm_cached_vertex_t));

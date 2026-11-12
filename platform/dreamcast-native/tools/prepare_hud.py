@@ -11,6 +11,12 @@ course 0's); nm_hud_course_maps lists the maps by slot.
 --second-marker SLOT TRACE: the map's "2" marker (288b5f0, on the second car while the player leads) from a HUD trace
 of a race on a course of --course-map in which the player leads: the sprite MARKER_SECOND.
 
+--generated-map SLOT JSON: a course map the arcade does not have (the PC build's Circuit Edition courses, slots 3
+and 4), drawn from the course's centre line: JSON {"centre": [[x, z], ...] (a closed loop, world units)}
+(platform/pc-native/tools/prepare_cce_course.py --map). The map lies as Advanced's (slot 2: x right, z up, its
+marker turn and size; --course-map 2 needed), scaled to fit Advanced's box and centred on it, the line drawn
+MAP_LINE pixels wide in Advanced's map colour (no new palette entry); the leader's matrix is the player's.
+
 HUD_TRACE_DIR comes from `m2segment ... --trace-hud NEW_DIR EVERY` (host only): its
 snapshots supply the final palette colours (colour translation and gamma applied
 by the board, never guessed RGB555) and the overlay polygons (course map, map
@@ -604,6 +610,49 @@ def course_map(trace, slot, j_reference, p_reference):
     return dict(track=track, colour=colour, affine=affine, affine_leader=affine_l, residual=residual, residual_leader=residual_l,
                 polygons=map_count, steady=steady, size=size, turn_degrees=float(np.degrees(np.arctan2(sine, cosine)) % 360))
 
+MAP_LINE = 4   # the generated maps' line, pixels (the arcade's maps: Advanced's 1554 texels over about 380 pixels of track)
+
+
+def generated_map(spec, slot, advanced, advanced_sprite, turn):
+    """--generated-map: the sprite, its origin and the player's matrix of a map drawn from a centre line, laid out
+    as Advanced's map (slot 2): the same axes (screen x = s x + c, y = -s z + c), turn and marker size, the course
+    scaled to fit the box of Advanced's sprite and centred on it."""
+    centre = np.array(spec['centre'], dtype=float)
+    if centre.ndim != 2 or centre.shape[1] != 2 or len(centre) < 8:
+        raise ValueError(f'course {slot}: the generated map needs a centre line of at least 8 x, z points')
+    a = advanced['affine']
+    sign = np.sign([a[0][0], a[1][1]])
+    if abs(a[0][1]) > 1e-4 or abs(a[1][0]) > 1e-4 or sign[0] == 0 or sign[1] == 0:
+        raise ValueError("Advanced's map is not axis-aligned: lay the generated map out another way")
+    (ax, ay), sprite = advanced_sprite
+    box = np.array([sprite['width'], sprite['height']], dtype=float)-MAP_LINE
+    low, high = centre.min(axis=0), centre.max(axis=0)
+    scale = float(min(box/np.maximum(high-low, 1.0)))
+    middle = (low+high)/2
+    target = np.array([ax+sprite['width']/2, ay+sprite['height']/2])
+    affine = np.array([[sign[0]*scale, 0.0, target[0]-sign[0]*scale*middle[0]],
+                       [0.0, sign[1]*scale, target[1]-sign[1]*scale*middle[1]]])
+    points = [(affine[0][0]*x+affine[0][2], affine[1][1]*z+affine[1][2]) for x, z in centre]
+    xs, ys = [p[0] for p in points], [p[1] for p in points]
+    left, top = int(np.floor(min(xs)-MAP_LINE)), int(np.floor(min(ys)-MAP_LINE))
+    width, height = int(np.ceil(max(xs)+MAP_LINE))+1-left, int(np.ceil(max(ys)+MAP_LINE))+1-top
+    image = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    local = [(x-left-0.5, y-top-0.5) for x, y in points]
+    colour = tuple(advanced['colour'])+(255,)
+    draw.line(local+[local[0]], fill=colour, width=MAP_LINE, joint='curve')
+    # Trim to the drawn texels.
+    mask = np.array(image)[:, :, 3] > 0
+    rows, cols = np.where(mask.any(axis=1))[0], np.where(mask.any(axis=0))[0]
+    image = image.crop((int(cols[0]), int(rows[0]), int(cols[-1])+1, int(rows[-1])+1))
+    left, top = left+int(cols[0]), top+int(rows[0])
+    pixels = [(0xff000000 | r << 16 | g << 8 | b) if alpha else 0 for r, g, b, alpha in image.get_flattened_data()]
+    print(f'course {slot} generated map: {len(centre)} points, {scale:.5f} px a unit, {image.width}x{image.height} at '
+          f'{left},{top}, {sum(1 for v in pixels if v)} texels')
+    return dict(sprite=dict(width=image.width, height=image.height, scale=1, pixels=pixels), origin=(left, top),
+                affine=affine, turn=turn, size=advanced['size'])
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('source', type=Path)
@@ -620,8 +669,14 @@ def main():
     # rectangle with its share of the per-sprite work (records_build, counted in the SH
     # simulator over both scripted races), at one instruction a cycle of 200 MHz.
     # tile-ns, px-ns: the PVR work model (tests/stream_sim, SIM_PVR).
+    parser.add_argument('--generated-map', nargs=2, action='append', metavar=('SLOT', 'JSON'), default=[],
+                        help='a course map drawn from a centre line (slots 3.., the PC build)')
     parser.add_argument('--second-marker', nargs=2, metavar=('SLOT', 'TRACE'),
                         help='the map marker of the second car from a HUD trace of a race the player leads')
+    parser.add_argument('--country', choices=('jpn', 'usa', 'export'), default='jpn',
+                        help="the board's COUNTRY setting (EEPROM +1b -> 53e59a; tools/settings_eeprom.py) the traces were "
+                             "made with: usa/export show the English CONDITION label (a768: 2874dfe) and wrong-way message "
+                             "(236830[0]: REVERSE 28769e0), usa the speed in mph with its label block (b1e4..b258: 2877a16)")
     parser.add_argument('--line-ns', type=float, default=1030.0)
     parser.add_argument('--lines', type=int, default=2, help='TA records of 32 bytes a rectangle (2: sprite, 4: strip)')
     parser.add_argument('--build-ns', type=float, default=450.0)
@@ -642,6 +697,17 @@ def main():
         raise ValueError('need at least eight steady race snapshots')
     pens = [struct.unpack('<8192I', (args.trace/f'pens_{f}.bin').read_bytes()) for f in steady]
     snapshot_chars = (args.trace/f'chars_{steady[0]}.bin').read_bytes()
+    if args.country != 'jpn':
+        # The English labels' characters (CONDITION, REVERSE, the mph label) come from a loader of the board's
+        # country, not the shared 5454 lists: the running game's character RAM (the trace, made with that
+        # country) supplies the characters in which the two differ.
+        chars, present = bytearray(chars), bytearray(present)
+        for index in range(len(snapshot_chars)//32):
+            block = snapshot_chars[index*32:index*32+32]
+            if block != bytes(chars[index*32:index*32+32]) and any(block):
+                chars[index*32:index*32+32] = block
+                present[index*32:index*32+32] = bytes([1])*32
+        chars, present = bytes(chars), bytes(present)
 
     # ---- tile sprites -------------------------------------------------------
     sprites = {}   # name -> dict(width,height,pixels RGBA ints (0 transparent), scale)
@@ -669,10 +735,13 @@ def main():
 
     layout = {}
     blocks = dict(BLOCKS)
-    # a818 wrong way: 236830[53e59a & 1] = (cell x, row, block); unit 1 on this board (as a750's label):
-    # "逆走" 2876914 at (25, 21); unit 0 would be "REVERSE" 28769e0 at (21, 21).
-    x, y, address = struct.unpack_from('<hhI', program, 0x36830+8*1)
-    if (x, y, address) != (25, 21, 0x2876914):
+    english = args.country != 'jpn'                  # 53e59a & 1 clear
+    if english:
+        blocks['CONDITION_LABEL'] = (0x2874dfe, 0x10009e2)  # a768..a778
+    # a818 wrong way: 236830[53e59a & 1] = (cell x, row, block): unit 1 "逆走" 2876914 at (25, 21); unit 0
+    # "REVERSE" 28769e0 at (21, 21).
+    x, y, address = struct.unpack_from('<hhI', program, 0x36830+8*(0 if english else 1))
+    if (x, y, address) != ((21, 21, 0x28769e0) if english else (25, 21, 0x2876914)):
         raise ValueError('unexpected wrong-way message table 236830')
     blocks['REVERSE'] = (address, 0x1000000+2*x+128*y)
     # ae98: lda 2872c42,g0 (ae98), lda 1000826,g1 (aeac) and lda 1000626,g1 (aeb8): the block and its places.
@@ -705,7 +774,11 @@ def main():
         tile_sprite(f'BIG_{name}', 2, 4, [0x8580+8*glyph+i for i in range(8)])           # 189b4
     for digit in range(10):
         tile_sprite(f'SPEED_{digit}', 2, 2, [0x8120+4*digit+i for i in range(4)])       # 1891c
-    tile_sprite('SPEED_UNIT', 2, 2, [0x8120+4*10+i for i in range(4)])                   # 188e8(10)
+    if args.country == 'usa':                        # b1e4..b258: the speed in mph, its label the block 2877a16
+        width, height, tiles = block_tiles(main_data, 0x2877a16)
+        tile_sprite('SPEED_UNIT', width, height, tiles)
+    else:
+        tile_sprite('SPEED_UNIT', 2, 2, [0x8120+4*10+i for i in range(4)])               # 188e8(10)
     for digit in range(10):
         tile_sprite(f'LAPNUM_{digit}', 1, 2, [0x8000+(2 << 7)+2*digit+i for i in range(2)])  # 187c0, colour 2
     for glyph in range(12):  # 18698: digits, 10 = minute mark, 11 = second mark; colour 13
@@ -1050,6 +1123,17 @@ def main():
                                        pixels=[(0xff000000 | r << 16 | g << 8 | b) if a else 0 for r, g, b, a in image.get_flattened_data()])
         layout[f'MAP_C{slot}'] = (left2, top2)
         course_maps[slot] = other
+    generated_maps = {}
+    for slot_text, json_text in args.generated_map:
+        slot = int(slot_text)
+        if slot < 3 or slot in generated_maps:
+            raise ValueError('--generated-map takes slots from 3 on, once each')
+        if 2 not in course_maps:
+            raise ValueError('--generated-map needs --course-map 2 (the map it is laid out as)')
+        generated_maps[slot] = generated_map(json.loads(Path(json_text).read_text()), slot, course_maps[2],
+                                             (layout['MAP_C2'], sprites['MAP_C2']), map_turn(program, 2))
+        sprites[f'MAP_C{slot}'] = generated_maps[slot]['sprite']
+        layout[f'MAP_C{slot}'] = generated_maps[slot]['origin']
 
     # Tachometer needle: v_k = pivot + P_k cos(angle) + Q_k sin(angle) (afc0..b0b8, model 288b6a4).
     # The HUD object also runs before the player's update: it shows the previous tick's rpm.
@@ -1318,6 +1402,10 @@ def main():
         rectangles += cores+pieces
     lines = ['/* Generated by tools/prepare_hud.py from owned daytona93; ROM-derived, never commit. */',
              '#ifndef DAYTONA_HUD_DATA_H', '#define DAYTONA_HUD_DATA_H', '#include <stdint.h>',
+             "/* The board's COUNTRY (53e59a) the art is of: 0 USA (speed in mph), 1 JPN, 2 EXPORT. */",
+             '#define NM_HUD_COUNTRY %d' % ('usa', 'jpn', 'export').index(args.country),
+             "/* b1e4..b230: mph = cvtri(speed +34 * 28b5740 / 1.6), the TGP's multiply then divide. */",
+             '#define NM_HUD_MPH_SCALE %sf' % float.hex(struct.unpack_from('<f', main_data, 0x28b5740-MAIN_BASE)[0]),
              '/* at: atlas texel; origin: offset of the cropped rectangle from the element origin, in',
              ' * sprite texels; scale: sprite texels per arcade pixel. */',
              'typedef struct { uint8_t sheet, scale, width, height; int16_t origin_x, origin_y; uint16_t u, v; } nm_hud_sprite_t;',
@@ -1404,11 +1492,17 @@ def main():
               ' * no map for that course.',
               ' * turn, size: what a marker\'s heading adds on this map and its size against course 0\'s (the model\'s angle and depth). */',
               'typedef struct { uint8_t sprite; int16_t x, y; const float (*player)[3], (*leader)[3]; uint16_t turn; float size; } nm_hud_course_map_t;',
-              'static const nm_hud_course_map_t nm_hud_course_maps[3]={' + ','.join(
+              *['static const float nm_hud_map_matrix_c%d[2][3]={{%s,%s,%s},{%s,%s,%s}};' % (
+                  slot, *map(c_float, g['affine'].flatten())) for slot, g in sorted(generated_maps.items())],
+              '#define NM_HUD_COURSE_MAPS %du' % (max([3]+[slot+1 for slot in generated_maps])),
+              'static const nm_hud_course_map_t nm_hud_course_maps[NM_HUD_COURSE_MAPS]={' + ','.join(
                   ['{NM_HUD_MAP,NM_HUD_MAP_X,NM_HUD_MAP_Y,nm_hud_map_matrix,nm_hud_map_leader,0,1.0f}'] +
                   [('{NM_HUD_MAP_C%d,NM_HUD_MAP_C%d_X,NM_HUD_MAP_C%d_Y,nm_hud_map_matrix_c%d,nm_hud_map_leader_c%d,' % ((slot,)*5))+
                    '%d,%s}' % (map_turn(program, slot), c_float(course_maps[slot]['size'])) if slot in course_maps else '{0,0,0,0,0,0,0.0f}'
-                   for slot in (1, 2)]) + '};',
+                   for slot in (1, 2)] +
+                  [('{NM_HUD_MAP_C%d,NM_HUD_MAP_C%d_X,NM_HUD_MAP_C%d_Y,nm_hud_map_matrix_c%d,nm_hud_map_matrix_c%d,' % ((slot,)*5))+
+                   '%d,%s}' % (generated_maps[slot]['turn'], c_float(generated_maps[slot]['size'])) if slot in generated_maps
+                   else '{0,0,0,0,0,0,0.0f}' for slot in range(3, max([3]+[s+1 for s in generated_maps]))]) + '};',
               'static const float nm_hud_needle_pivot[2]={%.9gf,%.9gf};' % tuple(needle[:2]),
               'static const float nm_hud_needle_cos[4][2]={'+','.join('{%.9gf,%.9gf}' % (v[0][0], v[1][0]) for v in needle_pq)+'};',
               'static const float nm_hud_needle_sin[4][2]={'+','.join('{%.9gf,%.9gf}' % (v[0][1], v[1][1]) for v in needle_pq)+'};',

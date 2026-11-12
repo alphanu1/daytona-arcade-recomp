@@ -19,7 +19,7 @@ int nm_road_load(nm_road_pack_t *p, const char *path) {
     int ok = fread(h,1,sizeof(h),f) == sizeof(h) &&
         ((h[0] == 0x33524e44 && !h[6] && !h[7]) ||
          (h[0] == 0x34524e44 && h[6] && h[6] <= 255 && !h[7]) ||
-         ((h[0] == 0x35524e44 || h[0] == 0x36524e44 || h[0] == 0x37524e44) && h[6] && h[6] <= 255 && h[7] && h[7] <= 44)) && h[2] < 4 &&
+         ((h[0] == 0x35524e44 || h[0] == 0x36524e44 || h[0] == 0x37524e44) && h[6] && h[6] <= 255 && h[7] && h[7] <= 44)) && h[2] < 5 && /* slots 0..4: the PC build's Circuit Edition courses too */
         h[3] >= 2 && h[3] <= 4097 && h[4] && h[4] <= 65536 &&
         h[5] <= 31;
     uint32_t grid_offset=0;

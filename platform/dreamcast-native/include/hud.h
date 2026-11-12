@@ -40,7 +40,7 @@
  *
  * Not here yet: the 501a80
  * time-attack variants (12f20: record times in place of the CONDITION
- * panel's cars) and the mph branch of b1a4 (53e59a == 0). */
+ * panel's cars). The mph branch of b1a4 (53e59a == 0): with the HUD pack of a USA board (nm_hud_cars_t.mph_scale). */
 
 enum { NM_HUD_BLANK=255, NM_HUD_MINUTE=10, NM_HUD_SECOND=11 };
 /* 231efc glyphs after the rank: 11 ST, 12 ND, 13 RD, 14 TH. */
@@ -71,6 +71,7 @@ typedef struct {
     uint8_t completed, total_laps, rank, count; /* +6d, 5010ec, +6a, 501080. */
     uint16_t best_ticks, start_ticks;           /* +64, +68. */
     int32_t speed_index, filtered_rpm;          /* +18, +154. */
+    float speed, mph_scale;                     /* +34; 28b5740 on a USA board (53e59a == 0), else 0. */
     float x, z; uint16_t yaw;                   /* +1c, +24, +58. */
     /* 12b34: the opponent whose rank is 0, or 1 when the player leads. */
     float leader_x, leader_z; uint16_t leader_yaw; uint8_t leader_valid, leader_second;
@@ -143,6 +144,9 @@ static const uint32_t nm_hud_radar_zooms[3]={0x3c03126fu,0x3ba3d70au,0x3b23d70au
 /* 234de8[course*4 + index]: the map's scale by the course slot and the index +52 (12a4c); the same check. */
 static const uint32_t nm_hud_map_scales[3][3]={{0x339652e8u,0x3356bf95u,0x331652e8u},{0x32e7eda1u,0x32bcfa83u,0x32920765u},
     {0x332bcc77u,0x3300d959u,0x32abcc77u}};
+/* The scale row of a course slot: the PC build's Circuit Edition courses (slots 3, 4; prepare_hud.py --generated-map)
+ * take Advanced's, as their maps are laid out as its. */
+static inline unsigned nm_hud_map_scale_slot(unsigned course) { return course<3u ? course : 2u; }
 
 /* 187c0, 18a08, 1891c, 18b44: right-aligned decimal, blank cells left of it. */
 static inline void nm_hud_number(uint32_t value, uint8_t *cells, unsigned count) {
@@ -316,7 +320,7 @@ static __attribute__((noinline, unused)) void nm_hud_overlay(nm_hud_t *hud, cons
             if(index<3u && !(vr&1u)) hud->radar_index=(uint8_t)index;
             else if(index<3u) hud->map_index=(uint8_t)index;
         }
-        const uint32_t *table=nm_hud_map_scales[hud->course<3u ? hud->course : 0u];
+        const uint32_t *table=nm_hud_map_scales[nm_hud_map_scale_slot(hud->course)];
         const float standard=nm_force_float(table[1]);
         if(hud->map_scale==0.0f) hud->map_scale=standard;
         hud->map_scale=nm_force_float(0x3e4ccccdu)*(nm_force_float(table[hud->map_index])-hud->map_scale)+hud->map_scale;
@@ -396,7 +400,16 @@ static __attribute__((noinline, unused)) void nm_hud_tick(nm_hud_t *hud, const n
         /* afc0: needle. b1a4 with 53e59a set: the speed index is km/h. */
         hud->needle=1;hud->needle_angle=nm_hud_needle_angle(c->filtered_rpm);
         if(c->manual || NM_HUD_GEAR_AUTO) nm_hud_gear(hud,c); /* b0c0 (b0c8: 501464) */
-        nm_hud_number((uint32_t)c->speed_index,hud->speed,3);hud->speed_drawn=1;
+        uint32_t shown=(uint32_t)c->speed_index;
+        if(c->mph_scale>0.0f) {
+            /* b1e4..b230 (53e59a == 0): the TGP's multiply (command 2) of +34 by 28b5740, its divide (command 3)
+             * by 1.6 (3fcccccd), cvtri. */
+            const float product=c->speed*c->mph_scale;
+            const float mph=c->math ? nm_force_divide(c->math,product,nm_force_float(0x3fcccccdu)) : product/1.6f;
+            int32_t rounded=0;
+            shown=nm_drive_round_i32(mph,&rounded) && rounded>0 ? (uint32_t)rounded : 0u;
+        }
+        nm_hud_number(shown,hud->speed,3);hud->speed_drawn=1;
         /* a818, after the rule set or cleared the HUD object's bit28: while it is
          * set the block is drawn when 5010b0 bit3 is clear (a878..a8bc) and erased
          * when set (a8c4..a8fc), 8 ticks each; a910..a964 erase it with the bit.

@@ -8,5 +8,7 @@
 int nm_select_render_load(const char *root);
 int nm_select_render_enqueue(const nm_select_t *select, uint32_t counter);
 int nm_select_render_release(void);
+/* The courses the loaded screens show: 5 with the Circuit Edition's art (PC), 3 otherwise. */
+unsigned nm_select_render_courses(void);
 
 #endif

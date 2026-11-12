@@ -1,0 +1,261 @@
+/* KallistiOS ##version##
+
+   dc/pvr/pvr_regs.h
+   Copyright (C) 2002 Megan Potter
+   Copyright (C) 2014 Lawrence Sebald
+   Copyright (C) 2023, 2025, 2026 Ruslan Rostovtsev
+   Copyright (C) 2024 Falco Girgis
+*/
+
+/** \file       dc/pvr/pvr_regs.h
+    \brief      PVR Driver Registers
+    \ingroup    pvr_registers
+
+    This file provides the low-level driver implementation details for the
+    PowerVR API, including its memory map and register accessors.
+
+    \author Megan Potter
+    \author Roger Cattermole
+    \author Paul Boese
+    \author Brian Paul
+    \author Lawrence Sebald
+    \author Benoit Miller
+    \author Ruslan Rostovtsev
+    \author Falco Girgis
+*/
+
+#ifndef __DC_PVR_PVR_REGS_H
+#define __DC_PVR_PVR_REGS_H
+
+#include <kos/cdefs.h>
+__BEGIN_DECLS
+
+#include <arch/arch.h>
+
+/**** Register macros ***************************************************/
+
+/** \defgroup pvr_registers         Registers
+    \brief                          Direct PVR register and memory access
+    \ingroup                        pvr
+    @{
+*/
+
+/* We use these macros to do all PVR register access, so that it's
+   simple later on to hook them for debugging or whatnot. */
+
+/** \brief   Retrieve a PVR register value
+
+    \param   REG             The register to fetch. See \ref pvr_regs.
+
+    \return                  The value of that register (32-bits)
+*/
+/* PC: the PVR register file is a host array (platform/pc-native/backend). */
+extern volatile uint32_t pc_pvr_regs[0x2000 / 4];
+#define PVR_GET(REG) (pc_pvr_regs[((REG) & 0x1fffu) >> 2])
+
+/** \brief   Set a PVR register value
+
+    \param   REG             The register to set. See \ref pvr_regs.
+    \param   VALUE           The value to set in the register (32-bits)
+*/
+#define PVR_SET(REG, VALUE) PVR_GET(REG) = (VALUE)
+
+/** \brief   Address stride from CLXA to CLXB (registers and VRAM windows).
+
+    NAOMI 2 only. The second PVR is not mapped until \ref pvr2_init().
+*/
+#define PVR2_ADDR_STRIDE 0x02000000
+
+/** \brief   Retrieve a register from the second PVR (CLXB). */
+#define PVR2_GET(REG) (* ( (volatile uint32_t *)( 0xa25f8000 + (REG) ) ) )
+
+/** \brief   Set a register on the second PVR (CLXB). */
+#define PVR2_SET(REG, VALUE) PVR2_GET(REG) = (VALUE)
+
+/** \brief   Write a PVR register to both chips (write-only broadcast). */
+#define PVR_BCAST_SET(REG, VALUE) \
+    (* ( (volatile uint32_t *)( 0xa85f8000 + (REG) ) ) = (VALUE))
+
+/** @} */
+
+/** \defgroup pvr_regs   Offsets
+    \brief               PowerVR register offsets
+    \ingroup             pvr_registers
+
+    The registers themselves; these are from Maiwe's powervr-reg.txt.
+
+    \note
+    2D specific registers have been excluded for now (like
+    vsync, hsync, v/h size, etc)
+
+    @{
+*/
+
+#define PVR_ID                  0x0000  /**< \brief Chip ID */
+#define PVR_REVISION            0x0004  /**< \brief Chip revision */
+#define PVR_RESET               0x0008  /**< \brief Reset pins */
+
+#define PVR_ISP_START           0x0014  /**< \brief Start the ISP/TSP */
+#define PVR_TEST_SELECT         0x0018  /**< \brief Test select (writes prohibited) */
+
+#define PVR_ISP_VERTBUF_ADDR    0x0020  /**< \brief Vertex buffer address for scene rendering */
+
+#define PVR_ISP_TILEMAT_ADDR    0x002c  /**< \brief Tile matrix address for scene rendering */
+#define PVR_SPANSORT_CFG        0x0030  /**< \brief Span sorter control -- write 0x101 for now */
+
+#define PVR_BORDER_COLOR        0x0040  /**< \brief Border Color in RGB888 */
+#define PVR_FB_CFG_1            0x0044  /**< \brief Framebuffer config 1 */
+#define PVR_FB_CFG_2            0x0048  /**< \brief Framebuffer config 2 */
+#define PVR_RENDER_MODULO       0x004c  /**< \brief Render modulo */
+#define PVR_FB_ADDR             0x0050  /**< \brief Framebuffer start address */
+#define PVR_FB_IL_ADDR          0x0054  /**< \brief Framebuffer odd-field start address for interlace */
+
+#define PVR_FB_SIZE             0x005c  /**< \brief Framebuffer display size */
+#define PVR_RENDER_ADDR         0x0060  /**< \brief Render output address */
+#define PVR_RENDER_ADDR_2       0x0064  /**< \brief Output for strip-buffering */
+#define PVR_PCLIP_X             0x0068  /**< \brief Horizontal clipping area */
+#define PVR_PCLIP_Y             0x006c  /**< \brief Vertical clipping area */
+
+#define PVR_CHEAP_SHADOW        0x0074  /**< \brief Cheap shadow control */
+#define PVR_OBJECT_CLIP         0x0078  /**< \brief Distance for polygon culling */
+#define PVR_FPU_PARAM_CFG       0x007c  /**< \brief Parameter read control -- write 0x0027df77 for now */
+#define PVR_HALF_OFFSET         0x0080  /**< \brief Pixel sampling control -- write 7 for now */
+#define PVR_TEXTURE_CLIP        0x0084  /**< \brief Distance for texture clipping */
+#define PVR_BGPLANE_Z           0x0088  /**< \brief Distance for background plane */
+#define PVR_BGPLANE_CFG         0x008c  /**< \brief Background plane config */
+
+#define PVR_ISP_FEED_CFG        0x0098  /**< \brief Translucent polygon sort mode -- write 0x00800408 for now */
+
+#define PVR_SDRAM_REFRESH       0x00a0  /**< \brief Texture memory refresh counter -- write 0x20 for now */
+#define PVR_SDRAM_ARB_CFG       0x00a4  /**< \brief Texture memory arbiter control -- write 0x1f on NAOMI */
+
+#define PVR_SDRAM_CFG           0x00a8  /**< \brief Texture memory control -- write 0x15d1c951 (DC) / 0x15d1c955 (NAOMI) */
+
+#define PVR_FOG_TABLE_COLOR     0x00b0  /**< \brief Table fog color */
+#define PVR_FOG_VERTEX_COLOR    0x00b4  /**< \brief Vertex fog color */
+#define PVR_FOG_DENSITY         0x00b8  /**< \brief Fog density coefficient */
+#define PVR_COLOR_CLAMP_MAX     0x00bc  /**< \brief RGB Color clamp max */
+#define PVR_COLOR_CLAMP_MIN     0x00c0  /**< \brief RGB Color clamp min */
+#define PVR_GUN_POS             0x00c4  /**< \brief Light gun position */
+#define PVR_HPOS_IRQ            0x00c8  /**< \brief Horizontal position IRQ */
+#define PVR_VPOS_IRQ            0x00cc  /**< \brief Vertical position IRQ */
+#define PVR_IL_CFG              0x00d0  /**< \brief Interlacing config */
+#define PVR_BORDER_X            0x00d4  /**< \brief Window border X position */
+#define PVR_SCAN_CLK            0x00d8  /**< \brief Clock and scanline values */
+#define PVR_BORDER_Y            0x00dc  /**< \brief Window border Y position */
+
+#define PVR_TEXTURE_MODULO      0x00e4  /**< \brief Output texture width modulo */
+#define PVR_VIDEO_CFG           0x00e8  /**< \brief Misc video config */
+#define PVR_BITMAP_X            0x00ec  /**< \brief Bitmap window X position */
+#define PVR_BITMAP_Y            0x00f0  /**< \brief Bitmap window Y position */
+#define PVR_SCALER_CFG          0x00f4  /**< \brief Smoothing scaler */
+
+#define PVR_PALETTE_CFG         0x0108  /**< \brief Palette format */
+#define PVR_SYNC_STATUS         0x010c  /**< \brief V/H blank status */
+#define PVR_FB_BURSTCTRL        0x0110  /**< \brief Framebuffer burst control -- write 0x93f39 for now */
+#define PVR_FB_C_SOF            0x0114  /**< \brief Current framebuffer start address (read) */
+#define PVR_Y_COEFF             0x0118  /**< \brief Y scaling coefficient -- write 0x8040 for now */
+
+#define PVR_PT_ALPHA_REF        0x011c  /**< \brief Only pixels with alpha >= this value are drawn for Punch Through polygons */
+
+#define PVR_TA_OPB_START        0x0124  /**< \brief Object Pointer Buffer start for TA usage */
+#define PVR_TA_VERTBUF_START    0x0128  /**< \brief Vertex buffer start for TA usage */
+#define PVR_TA_OPB_END          0x012c  /**< \brief OPB end for TA usage */
+#define PVR_TA_VERTBUF_END      0x0130  /**< \brief Vertex buffer end for TA usage */
+#define PVR_TA_OPB_POS          0x0134  /**< \brief Top used memory location in OPB for TA usage */
+#define PVR_TA_VERTBUF_POS      0x0138  /**< \brief Top used memory location in vertbuf for TA usage */
+#define PVR_TILEMAT_CFG         0x013c  /**< \brief Tile matrix size config */
+#define PVR_OPB_CFG             0x0140  /**< \brief Active lists / list size */
+#define PVR_TA_INIT             0x0144  /**< \brief Initialize vertex reg. params */
+#define PVR_YUV_ADDR            0x0148  /**< \brief YUV conversion destination */
+#define PVR_YUV_CFG             0x014c  /**< \brief YUV configuration */
+#define PVR_YUV_STAT            0x0150  /**< \brief The number of YUV macroblocks converted */
+
+#define PVR_TA_LIST_CONT        0x0160  /**< \brief TA list continuation */
+#define PVR_TA_OPB_INIT         0x0164  /**< \brief Object pointer buffer position init */
+
+#define PVR_FOG_TABLE_BASE      0x0200  /**< \brief Base of the fog table */
+
+#define PVR_PALETTE_TABLE_BASE  0x1000  /**< \brief Base of the palette table */
+/** @} */
+
+/** \defgroup pvr_addresses     Addresses and Constants
+    \brief                      Miscellaneous Addresses and Constants
+    \ingroup                    pvr_registers
+
+    Useful PVR memory locations and values.
+
+    @{
+*/
+#define PVR_TA_INPUT        0x10000000  /**< \brief TA command input (64-bit, TA) */
+#define PVR_TA_YUV_CONV     0x10800000  /**< \brief YUV converter (64-bit, TA) */
+#define PVR_TA_TEX_MEM      0x11000000  /**< \brief VRAM 64-bit, TA=>VRAM */
+#define PVR_TA_TEX_MEM_32   0x13000000  /**< \brief VRAM 32-bit, TA->VRAM */
+#define PVR_RAM_BASE_32_P0  0x05000000  /**< \brief VRAM 32-bit, P0 area, PVR->VRAM */
+#define PVR_RAM_BASE_64_P0  0x04000000  /**< \brief VRAM 64-bit, P0 area, PVR->VRAM */
+#define PVR_RAM_BASE        0xa5000000  /**< \brief VRAM 32-bit, P2 area, PVR->VRAM */
+#define PVR_RAM_INT_BASE    0xa4000000  /**< \brief VRAM 64-bit, P2 area, PVR->VRAM */
+
+#define PVR_RAM_SIZE_MB     (hardware_sys_mode(NULL) == HW_TYPE_RETAIL ? 8 : 16)  /**< \brief RAM size in MiB */
+#define PVR_RAM_SIZE        (PVR_RAM_SIZE_MB*1024*1024)         /**< \brief RAM size in bytes */
+
+#define PVR_RAM_TOP         (PVR_RAM_BASE + PVR_RAM_SIZE)       /**< \brief Top of raw PVR RAM */
+#define PVR_RAM_INT_TOP     (PVR_RAM_INT_BASE + PVR_RAM_SIZE)   /**< \brief Top of int PVR RAM */
+
+#define PVR2_RAM_BASE_32_P0 (PVR_RAM_BASE_32_P0 + PVR2_ADDR_STRIDE) /**< \brief CLXB VRAM 32-bit, P0 */
+#define PVR2_RAM_BASE_64_P0 (PVR_RAM_BASE_64_P0 + PVR2_ADDR_STRIDE) /**< \brief CLXB VRAM 64-bit, P0 */
+#define PVR2_RAM_BASE       (PVR_RAM_BASE + PVR2_ADDR_STRIDE)       /**< \brief CLXB VRAM 32-bit, P2 */
+#define PVR2_RAM_INT_BASE   (PVR_RAM_INT_BASE + PVR2_ADDR_STRIDE)   /**< \brief CLXB VRAM 64-bit, P2 */
+#define PVR2_RAM_TOP        (PVR2_RAM_BASE + PVR_RAM_SIZE)          /**< \brief Top of CLXB 32-bit VRAM */
+#define PVR2_RAM_INT_TOP    (PVR2_RAM_INT_BASE + PVR_RAM_SIZE)      /**< \brief Top of CLXB 64-bit VRAM */
+/** @} */
+
+/* Register content defines, as needed; these will be filled in over time
+   as the implementation requires them. There's too many to do otherwise. */
+
+/** \defgroup pvr_reset_vals        Reset Values
+    \brief                          Values used to reset parts of the PVR
+    \ingroup                        pvr_registers
+
+    These values are written to the PVR_RESET register in order to reset the
+    system or to take it out of reset.
+
+    @{
+*/
+#define PVR_RESET_ALL       0xffffffff  /**< \brief Reset the whole PVR */
+#define PVR_RESET_NONE      0x00000000  /**< \brief Cancel reset state */
+#define PVR_RESET_TA        0x00000001  /**< \brief Reset only the TA */
+#define PVR_RESET_ISPTSP    0x00000002  /**< \brief Reset only the ISP/TSP */
+/** @} */
+
+/** \defgroup pvr_go        Init/Start Values
+    \brief                  Values to be written to registers to conform or start operations.
+    \ingroup                pvr_registers
+    @{
+*/
+#define PVR_ISP_START_GO    0xffffffff  /**< \brief Write to the PVR_ISP_START register to start rendering */
+
+#define PVR_TA_INIT_GO      0x80000000  /**< \brief Write to the PVR_TA_INIT register to confirm settings */
+/** @} */
+
+/** \defgroup pvr_tex_mod   PVR_TEXTURE_MODULO Values
+    \brief                  Definitions for the contents of the PVR_TEXTURE_MODULO register.
+    \ingroup                pvr_registers
+    @{
+*/
+#define PVR_TXR_STRIDE_MULT GENMASK(4, 0)   /**< \brief Bottom 5 bits contain the size when using PVR_TXRFMT_X32_STRIDE */
+/** @} */
+
+/** \defgroup pvr_scaler    PVR_SCALER_CFG Values
+    \brief                  Definitions for the fields of the PVR_SCALER_CFG register.
+    \ingroup                pvr_registers
+    @{
+*/
+#define PVR_SCALER_CFG_FSAA BIT(16)  /**< \brief Enable FSAA */
+
+#define PVR_SCALER_CFG_VSCALE_FACTOR GENMASK(15, 0) /**< \brief Vertical scale factor = 1024 / value */
+/** @} */
+
+__END_DECLS
+
+#endif  /* __DC_PVR_PVR_REGS_H */
