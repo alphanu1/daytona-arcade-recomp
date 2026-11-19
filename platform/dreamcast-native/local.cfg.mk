@@ -1164,6 +1164,17 @@ NATIVE_SMALL_CAR_PX ?= 12
 $(if $(shell [ "$(NATIVE_SMALL_CAR_PX)" -ge 0 ] 2>/dev/null && echo ok),,$(error NATIVE_SMALL_CAR_PX must be a whole number of rows))
 ENJ_BASENAME := $(ENJ_BASENAME)-smallcar$(if $(filter 0,$(NATIVE_SMALL_CAR_PX)),off,$(NATIVE_SMALL_CAR_PX))
 ENJ_CFLAGS += -DNM_SMALL_CAR_PX=$(NATIVE_SMALL_CAR_PX)
+# NATIVE_FLAT_CAR_PX (default 6 since 19 November, or NATIVE_SMALL_CAR_PX when that is less): under NATIVE_SMALL_CAR_PX
+# rows an opponent is drawn with the level-2 body (textured, no wheel or window meshes), and with the untextured
+# level-1 body only under this many rows; 0 leaves level 1 to the arcade's own level; NATIVE_SMALL_CAR_PX is the one
+# step of before. At most NATIVE_SMALL_CAR_PX. ELF suffix -flatcarM when it is not the default.
+NATIVE_FLAT_CAR_DEFAULT := $(shell [ "$(NATIVE_SMALL_CAR_PX)" -lt 6 ] 2>/dev/null && echo $(NATIVE_SMALL_CAR_PX) || echo 6)
+NATIVE_FLAT_CAR_PX ?= $(NATIVE_FLAT_CAR_DEFAULT)
+$(if $(shell [ "$(NATIVE_FLAT_CAR_PX)" -ge 0 ] 2>/dev/null && [ "$(NATIVE_FLAT_CAR_PX)" -le "$(NATIVE_SMALL_CAR_PX)" ] && echo ok),,$(error NATIVE_FLAT_CAR_PX must be a whole number of rows, at most NATIVE_SMALL_CAR_PX))
+ifneq ($(NATIVE_FLAT_CAR_PX),$(NATIVE_FLAT_CAR_DEFAULT))
+ENJ_BASENAME := $(ENJ_BASENAME)-flatcar$(NATIVE_FLAT_CAR_PX)
+endif
+ENJ_CFLAGS += -DNM_FLAT_CAR_PX=$(NATIVE_FLAT_CAR_PX)
 # NATIVE_COURSE (default 0, Beginner): the course the first race starts on, as the slot 501460 (0 Beginner,
 # 1 Expert, 2 Advanced; include/course_assets.h). The course is a run-time choice (code/practice.c
 # nm_practice_course_select, for the front end); this is only its value at boot. Every course's packs are

@@ -61,16 +61,25 @@ int nm_practice_render_tunnel(nm_practice_scene_t *scene,int tunnel,int others_o
  * drawn-car count 5014f7 the opponents read on the next tick: only what is drawn for it changes. An opponent whose
  * body is less than N output rows tall is drawn with the level-1 body (15 faces, 51 vertices; level 2's has 71 and
  * 191, level 3's 89 and 244) and level 1's parts: no wheel or window meshes. Its shadow follows the arcade's level.
- * Rows: 480/384 * focus * 1.28 (the body meshes' height at every level) / view depth of the body origin. */
+ * Rows: 480/384 * focus * 1.28 (the body meshes' height at every level) / view depth of the body origin.
+ * NM_FLAT_CAR_PX=M (make NATIVE_FLAT_CAR_PX; 6, the default since 19 November) splits the step in two: under N rows
+ * the level-2 body (textured as level 3's, no wheel or window meshes), and the untextured level-1 body only under M
+ * rows. M = N is the single step above; 0 leaves level 1 to the arcade's own level (view depth over 100: 3.4 rows in
+ * the follow view). Hardware, Beginner's scripted race, registration a frame and late frames of 9,370: one step at
+ * 12 rows 8.09 ms and 1; M = 6 8.22 ms and 2; M = 0 8.51 ms and 2; no rule at all 8.54 ms and 2. */
 #ifndef NM_SMALL_CAR_PX
 #define NM_SMALL_CAR_PX 12
+#endif
+#ifndef NM_FLAT_CAR_PX
+#define NM_FLAT_CAR_PX (NM_SMALL_CAR_PX<6 ? NM_SMALL_CAR_PX : 6)
 #endif
 static inline unsigned practice_drawn_level(const nm_practice_scene_t *scene,unsigned car,unsigned level,
         const nm_instance_t *body) {
 #if NM_SMALL_CAR_PX
     if(scene->attract_active || !car || level<2) return level;
     const float rows_at_unit_depth=(480.0f/384.0f)*1.28f*body->focus[1];
-    return body->matrix[11]*(float)NM_SMALL_CAR_PX>rows_at_unit_depth ? 1u : level;
+    if(body->matrix[11]*(float)NM_SMALL_CAR_PX<=rows_at_unit_depth) return level;
+    return body->matrix[11]*(float)NM_FLAT_CAR_PX>rows_at_unit_depth ? 1u : 2u;
 #else
     (void)scene;(void)car;(void)body;
     return level;
