@@ -115,6 +115,7 @@ endif
 	python3 tests/test_sq_quads.py
 	python3 tests/test_render_profile.py
 	python3 tests/test_inspect_pause.py
+	python3 tests/test_car_drawn_level.py
 	python3 tests/test_inspect_camera.py
 	python3 tests/test_title_mode.py
 	python3 tests/test_select_mode.py

@@ -76,8 +76,14 @@ int nm_practice_render_tunnel(nm_practice_scene_t *scene,int tunnel,int others_o
 static inline unsigned practice_drawn_level(const nm_practice_scene_t *scene,unsigned car,unsigned level,
         const nm_instance_t *body) {
 #if NM_SMALL_CAR_PX
-    if(scene->attract_active || !car || level<2) return level;
+    if(!level || (!scene->attract_active && !car)) return level;
     const float rows_at_unit_depth=(480.0f/384.0f)*1.28f*body->focus[1];
+    /* The arcade's level 1 is by view depth alone (over 100), whatever the lens: the cameras of the podium's and the
+     * attract's cinematics show such cars tens of rows tall. One of M rows or more is drawn textured. */
+    const float flat_rows=(float)NM_FLAT_CAR_PX; /* 0: level 1 stays the arcade's */
+    if(level==1) return flat_rows>0.0f && body->matrix[11]>0.0f &&
+        body->matrix[11]*flat_rows<=rows_at_unit_depth ? 2u : 1u;
+    if(scene->attract_active) return level;
     if(body->matrix[11]*(float)NM_SMALL_CAR_PX<=rows_at_unit_depth) return level;
     return body->matrix[11]*(float)NM_FLAT_CAR_PX>rows_at_unit_depth ? 1u : 2u;
 #else
