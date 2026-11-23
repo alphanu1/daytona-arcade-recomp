@@ -1,5 +1,100 @@
 # Handoff
 
+## Tilemaps beside the raster bands; daytona --frame-stats (2026-11-22)
+
+Correction to the entry below: it says the app does not use the CPU
+rasterizer. Wrong: `renderer = "software"` (CPU, exact) is the launcher's
+default, so the banded rasterizer speeds up the game itself, not only the
+headless harness. Found with `--frame-stats` (below): a fresh profile logs
+`renderer software (CPU)`.
+
+- `Raster::render_start` / `finish`: render() in two halves. On the standard
+  path (no external 3D, not widescreen with HUD at the edges, where the
+  front layers decide the HUD's polygon move first), `Video::screen_update`
+  starts the bands, draws the back and front tilemaps on its own thread into
+  screen_/sys24_, then joins. Separate buffers, composed in the same order.
+  Whole-run hashes against the previous video.cpp (6,000 frames,
+  `inputs-advanced-finish.txt`): native `b3bb1404b02fb0c7`, 16:9
+  `a925af9d7a98d8de`, 16:9 + HUD edges `7551e94afb4f7629`, frame skip 1
+  `36fab3dcf4f8755e`, all identical. Profile, ms per drawn frame: raster
+  1.63 -> 0.08 (now the wait for the bands), tile draw 0.85 -> 1.38 (shares
+  the cores), video total 2.78 -> 1.83. `bench_m2run.py` on `race_basic`:
+  median 25.37 -> 21.59 s, spread 27% (noisy; about 15%). ctest 20/20.
+- `daytona --frame-stats`: present intervals, game frames per present and
+  emulation time per frame, printed on exit (src/app/frame_stats.h). Windows:
+  the GUI build prints to the parent's console, or to daytona.log in the
+  profile folder when there is none (start it from pythonw or Explorer to get
+  the log). Use `--profile NAME` so a test run does not touch real settings.
+
+Measured on this PC (60 Hz display, Deluxe '93 attract, 3,600 frames each):
+
+| pacing, API | presents late (> 1.5x median) | p99 / max ms | repeats / catch-ups | emulation p50 / max ms |
+|---|---|---|---|---|
+| clock (default), D3D12 | 57 | 25.6 / 33.1 | 246 / 92 | 2.64 / 4.84 |
+| sync display, D3D12 | 45 | 25.3 / 33.2 | 2 / 0 | 2.74 / 5.37 |
+| sync display, Vulkan | 0 | 17.4 / 18.2 | 0 / 0 | 2.78 / 12.3 |
+
+Emulation is never the cause: at most 12 ms of a 16.7 ms refresh. Clock
+pacing at 57.52 Hz on 60 Hz repeats a picture about 2.5 times a second by
+design (about 155 of the 246). The late presents are on the presentation
+side: D3D12 here misses refreshes that Vulkan does not. One PC and one
+driver, not a general result.
+
+## Headless harness speed: banded rasterizer, m2run --no-render (2026-11-22)
+
+Measured first (`m2run --profile`, new): a headless Deluxe '93 race frame
+(6,000 frames, `inputs-advanced-finish.txt`, 8-core desktop, clang-cl
+Release) took 9.0 ms: core 0.47, geometry 0.52, sound 0.46, video 7.57 ms,
+of which the CPU rasterizer 6.25, tile draw 0.97, composite 0.31, tile
+cache 0.04. The desktop game draws 3D on the GPU, so this is the harness's
+cost, not the game's: game logic is about a tenth of a 17.4 ms frame.
+
+- `m2run --no-render` (`M2Board::set_render`): never draws the screen, for
+  runs that compare counts, sound or traces but no pixels. Same i960/TGP
+  instructions, interrupts and sound bytes; 9.2 s for 6,000 frames vs 54 s
+  drawn (5.9x) on the same PC. Refuses `--dump`.
+- `m2run --profile`: per-stage ms/frame from the existing FrameProfiler and
+  VideoProfile, now wired up. `--hash-frames`: one hash over every drawn
+  frame's screen hash, to compare whole runs. `M2Board::screens_drawn()`
+  counts screen updates (skipped frames are not profiled or hashed).
+- CPU rasterizer bands (`M2_RASTER_BANDS`, desktop only; not Vita/Dreamcast):
+  polygons are prepared once in MAME's order, then bands of scanlines (3 per
+  thread) are drawn on a persistent pool, each band drawing every polygon
+  clipped to its rows. Each scanline's values come from the polygon setup
+  alone (the edge walk in render_polygon restarts to the same edge at any
+  scanline: every edge it skips has v2.y below the current line), and depth
+  fill and colour are per pixel, so output is identical. Threads: automatic
+  (cores, at most 8), `M2_RASTER_THREADS=N`, or `Raster::set_threads`; 1 is
+  the serial path. Verified with `--hash-frames` over all 6,000 drawn frames:
+  hash `b3bb1404b02fb0c7` at 1, 2, 3, 5, 8, 16 and 64 threads, and
+  `7551e94afb4f7629` at 1 and 8 threads with `--aspect 16:9 --hud-edges`.
+  Raster 6.38 -> 1.63 ms/frame (3.9x); whole run 61.9 -> 30.7 s with
+  hashing. Gains flatten past about 5 threads on 8 cores. ctest 18/18 (2 Lua
+  tests skipped: no Lua). The app is unchanged in practice: with the GPU
+  renderer the CPU rasterizer does not run, and the pool starts only on the
+  first CPU render.
+- `scripts/bench_m2run.py`: runs builds interleaved N times, reports median,
+  min, max and spread, and fails if any run's counts or hashes differ. Single
+  runs here varied 10-20% (101-117 frames/s across three identical runs), so
+  compare medians, never one run.
+
+Not adopted, with measurements (what not to re-propose):
+
+- `M2_FAST_BUS`/`M2_FAST_TGP`/`M2_FAST_GEO` on desktop: identical results,
+  48.6 -> 47.6 s (about 2%) on the run above. Not worth giving up the
+  reference build `fast_paths.h` keeps for desktop.
+- Link-time optimisation (`CMAKE_INTERPROCEDURAL_OPTIMIZATION=ON`, clang-cl
+  `-flto`): identical results; +5% on one race, -5.8% (median of 3) on
+  `race_basic`, inside the 12-20% run-to-run spread; `--no-render` equal
+  (5.69 vs 5.71 s). Costs a 330 s link of `m2run` alone.
+
+Setup findings on a fresh Windows checkout: a build folder copied with the
+project from another path fails CMake (cached source path); move it aside.
+A MAME split `daytona93.zip` (12 files) is rejected for `mpr-16528.10`;
+merging the 18 shared parent files from `daytona.zip` (CRCs as in
+`rom_import.cpp`) makes it complete. setup.py stops at the first rejected set,
+so Revision A was not tried until Deluxe '93 imported.
+
 ## Widescreen opponent visibility (2026-10-14)
 
 Both ROM revisions use enhancement hooks before the opponent car-cell bit test

@@ -112,6 +112,11 @@ public:
 #else
     void set_frame_skip(int skip) { frame_skip_ = skip < 0 ? 0 : skip > 2 ? 2 : skip; }
 #endif
+    // Headless harness runs that compare no pixels (m2run --no-render): never
+    // draw the screen. Game logic, the geometrizer and sound are unchanged;
+    // the game never reads the video output back.
+    void set_render(bool on) { render_ = on; }
+    uint64_t screens_drawn() const { return screens_drawn_; } // screen_update calls so far
     IoBoard &io() { return io_; }
     TgpBoard &tgp() { return tgp_; }
     // Bytes sent to the sound board since the last take.
@@ -181,6 +186,8 @@ private:
     std::unique_ptr<CommBoard> comm_board_; // link play only
     Cpu *cpu_ = nullptr;
     int frame_skip_ = 0;
+    bool render_ = true;
+    uint64_t screens_drawn_ = 0;
     uint64_t tex_generation_ = 0; // texture RAM writes so far
     Lockstep *ls_ = nullptr;
 

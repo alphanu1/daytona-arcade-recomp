@@ -7,6 +7,7 @@
 //         [--dump-from FRAME] [--native-audio-check] [--nvram DIR] [--save-nvram DIR]
 //         [--link-listen PORT --link-next HOST:PORT [--link-sync]]
 //         [--draw-budget N] [--draw-order-only] [--original-selection] [--scenery-log FILE]
+//         [--no-render] [--profile] [--hash-frames]
 //
 // --draw-budget is an override independent of --draw-distance:
 // 0 uses Automatic; e.g. --draw-distance 1 --draw-budget 5000 widens
@@ -25,6 +26,14 @@
 // --native-audio-check: no reference sound board; the game's sound commands
 // go to the native audio engine as the app's would, and the first fault
 // stops the run with its frame and that frame's command bytes.
+// --no-render: never draw the screen, for runs that compare counts, sound or
+// traces but no pixels (drawing is most of a headless race frame). Game logic
+// is unchanged; no screen hash is printed. Not with --dump.
+// --profile: host time per frame by stage (core = i960 + synchronous TGP,
+// geometry, video split into tile cache / tile draw / raster / composite,
+// sound), averaged over the run. Timing only; it never changes the run.
+// --hash-frames: one hash over every drawn frame's screen hash, printed at the
+// end, to compare whole runs (e.g. M2_RASTER_THREADS=1 against the default).
 // --aspect widens the screen (the widescreen enhancement, e.g. 16:9); dumps
 // are then wider than 496 (the width is printed).
 // --wav writes the sound board's output (YM3438 + both MultiPCMs, mixed at
@@ -103,6 +112,7 @@ int main(int argc, char **argv) {
     double aspect = 0;
     int frame_skip = 0;
     bool hud_edges = false, stretch_backdrop = false, original_selection = false;
+    bool no_render = false, profile = false, hash_frames = false;
     uint32_t draw_budget = 0;
     for (int i = 3; i < argc; i++) {
         if (!std::strcmp(argv[i], "--draw-budget") && i + 1 == argc) {
@@ -115,11 +125,16 @@ int main(int argc, char **argv) {
         if (!std::strcmp(argv[i], "--native-audio-check")) native_check = true;
         if (!std::strcmp(argv[i], "--draw-order-only")) rt::EnhanceDiagnostics::draw_order_only = true;
         if (!std::strcmp(argv[i], "--original-selection")) original_selection = true;
+        if (!std::strcmp(argv[i], "--no-render")) no_render = true;
+        if (!std::strcmp(argv[i], "--profile")) profile = true;
+        if (!std::strcmp(argv[i], "--hash-frames")) hash_frames = true;
     }
     for (int i = 3; i + 1 < argc; i += 2) {
         if (!std::strcmp(argv[i], "--hud-edges") || !std::strcmp(argv[i], "--stretch-backdrop") ||
             !std::strcmp(argv[i], "--link-sync") || !std::strcmp(argv[i], "--native-audio-check") ||
-            !std::strcmp(argv[i], "--draw-order-only") || !std::strcmp(argv[i], "--original-selection")) { i--; continue; }
+            !std::strcmp(argv[i], "--draw-order-only") || !std::strcmp(argv[i], "--original-selection") ||
+            !std::strcmp(argv[i], "--no-render") || !std::strcmp(argv[i], "--profile") ||
+            !std::strcmp(argv[i], "--hash-frames")) { i--; continue; }
         if (!std::strcmp(argv[i], "--inputs")) inputs_path = argv[i + 1];
         else if (!std::strcmp(argv[i], "--dump")) dump_dir = argv[i + 1];
         else if (!std::strcmp(argv[i], "--every")) every = std::strtoull(argv[i + 1], nullptr, 10);
@@ -147,6 +162,7 @@ int main(int argc, char **argv) {
     try {
         if (rt::EnhanceDiagnostics::draw_order_only && rt::Enhance::draw_distance <= 0)
             throw std::runtime_error("--draw-order-only needs positive --draw-distance");
+        if (no_render && !dump_dir.empty()) throw std::runtime_error("--no-render draws no frames to --dump");
         tools::SceneryLog scenery_log(scenery_log_path);
         rt::GameLoop game(dir, !native_check);
         game.set_draw_budget(draw_budget);
@@ -170,6 +186,18 @@ int main(int argc, char **argv) {
             game.board().set_link(link.get(), link_sync);
         }
         game.set_frame_skip(frame_skip);
+        game.board().set_render(!no_render);
+        if (profile) {
+            auto ns = []() -> uint64_t {
+                return uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                     std::chrono::steady_clock::now().time_since_epoch()).count());
+            };
+            game.set_profile_clock(ns);
+            game.board().video().set_profile_clock(ns);
+        }
+        rt::FrameProfile prof_sum;
+        uint64_t prof_core = 0, vid_cache = 0, vid_tiles = 0, vid_raster = 0, vid_composite = 0, vid_frames = 0;
+        uint64_t frames_hash = 0xcbf29ce484222325ULL, frames_hashed = 0;
         if (aspect > 0) {
             game.set_aspect(aspect);
             game.set_hud_edges(hud_edges);
@@ -182,7 +210,28 @@ int main(int argc, char **argv) {
         std::vector<float> fm, pcm;
         uint64_t drive_commands = 0, drive_kinds[16] = {}; // the force feedback drive board's commands, by type
         for (uint64_t f = 0; f < frames; f++) {
+            const uint64_t drawn_before = game.board().screens_drawn();
             game.run_frame(script.at(game.board().frame()));
+            if (hash_frames && game.board().screens_drawn() != drawn_before) {
+                frames_hash = (frames_hash ^ game.board().video().screen_hash()) * 0x100000001b3ULL;
+                ++frames_hashed;
+            }
+            if (profile) {
+                const rt::FrameProfile &p = game.last_profile();
+                prof_sum.total += p.total;
+                prof_sum.geometry += p.geometry;
+                prof_sum.video += p.video;
+                prof_sum.sound += p.sound;
+                prof_core += p.core();
+                if (game.board().screens_drawn() != drawn_before) { // drawn this frame, not skipped
+                    const rt::VideoProfile &v = game.board().video().last_profile();
+                    vid_cache += v.tile_cache;
+                    vid_tiles += v.tile_draw;
+                    vid_raster += v.raster;
+                    vid_composite += v.composite;
+                    ++vid_frames;
+                }
+            }
             for (uint8_t c : std::exchange(game.board().io().drive_commands, {})) ++drive_commands, ++drive_kinds[c >> 4];
             if (native) { // the app's native audio path, frame by frame
                 const auto bytes = game.board().take_sound_bytes();
@@ -228,7 +277,22 @@ int main(int argc, char **argv) {
                     " TGP instructions, %d interrupts, %" PRIu64 " bytes to the sound board; %.2f s (%.0f frames/s)\n",
                     game.frames(), game.instructions(), game.board().tgp().tgp_instructions(), game.interrupts(),
                     game.board().sound_bytes_total(), s, double(game.frames()) / s);
-        std::printf("  last screen hash %016" PRIx64 "\n", game.board().video().screen_hash());
+        if (no_render) std::printf("  screen not drawn (--no-render)\n");
+        else std::printf("  last screen hash %016" PRIx64 "\n", game.board().video().screen_hash());
+        if (hash_frames) std::printf("  all %" PRIu64 " drawn frames hash %016" PRIx64 "\n", frames_hashed, frames_hash);
+        if (profile && game.frames()) {
+            const double n = double(game.frames()), ms = 1e-6;
+            std::printf("  profile, ms per frame: total %.3f = core %.3f + geometry %.3f + video %.3f + sound %.3f\n",
+                        double(prof_sum.total) * ms / n, double(prof_core) * ms / n, double(prof_sum.geometry) * ms / n,
+                        double(prof_sum.video) * ms / n, double(prof_sum.sound) * ms / n);
+            if (vid_frames) {
+                const double d = double(vid_frames);
+                std::printf("  video, ms per drawn frame (%" PRIu64 " frames): tile cache %.3f, tile draw %.3f, "
+                            "raster %.3f, composite %.3f\n",
+                            vid_frames, double(vid_cache) * ms / d, double(vid_tiles) * ms / d, double(vid_raster) * ms / d,
+                            double(vid_composite) * ms / d);
+            }
+        }
         if (const rt::CommBoard *cb = game.board().comm_board()) {
             static const char *states[] = {"off (the game never started the board)", "waiting for the other cabinets", "up", "lost"};
             std::printf("  link: %s", states[int(cb->link())]);
