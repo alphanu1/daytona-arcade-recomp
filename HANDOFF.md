@@ -1,5 +1,36 @@
 # Handoff
 
+## Split ROM sets, setup past a rejected set, Lua tests on Windows (2026-11-22)
+
+Found setting up a fresh Windows checkout with MAME's split `daytona93.zip`
+(12 files) beside a non-merged `daytona.zip`.
+
+- Importer (`rom_import.cpp`, `scripts/m2import.py`): each set names its
+  MAME parent (`daytona93` -> `daytona`). A file missing from the set's
+  archive is read from the parent's archive in the same folder
+  (`daytona.zip`, or `.7z` in the C++ importer); every file is still checked
+  against the set's own table. Plain string paths, no `<filesystem>` (the
+  Vita and Dreamcast builds compile this file). Verified with m2import on a
+  split set made from the full one: with `daytona.zip` beside it, all 10
+  images byte-identical (SHA-256) to the full set's; alone, refused with
+  "mpr-16528.10: missing from the daytona93 set (a split set needs
+  daytona.zip beside it)", which the launcher's check shows too. The full
+  merged set imports unchanged. The Python importer matches (zip only).
+  Android stages only the chosen file, so a split set there still needs
+  merging.
+- `setup.py`: a rejected set no longer stops setup; the other set is still
+  recompiled and built, the rejections are printed at the end, and setup
+  exits 1. The message mentions split sets. Not run end to end with a
+  rejected set (a full setup is about 25 minutes); syntax-checked only.
+- Lua tests: they had only ever been skipped here (no `lupa`). With `lupa`
+  (`setup.py --test-extras`), both failed on Windows: CMake passed the build
+  folder, but Visual Studio puts `test_trace` and `tracediff` in
+  `build/Release` (now `$<TARGET_FILE_DIR:...>`, unchanged on single-config
+  generators), and `lua_plugin_mock_test.py` pasted a backslash path into a
+  Lua string literal (now forward slashes). ctest 20/20 with none skipped.
+- Also found: a build folder moved with the project from another path fails
+  CMake (cached source path); move it aside and configure again.
+
 ## Widescreen opponent visibility (2026-10-14)
 
 Both ROM revisions use enhancement hooks before the opponent car-cell bit test

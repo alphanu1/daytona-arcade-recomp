@@ -86,17 +86,58 @@ const Load kDaytona[] = {
 // from there up to 0xF00000); where the TGP program the i960 uploads at
 // boot sits in main_data (found by matching MAME's upload; the same 2,024
 // words in both sets, checked by CRC).
+// `parent`: MAME's parent set (ROM_START's cloneof), whose archive holds the
+// files a split clone set leaves out.
 struct Set {
     const char *name;
+    const char *parent;
     const Load *loads;
     size_t count;
     uint32_t mirror_from, tgp_offset;
 };
 constexpr uint32_t kTgpWords = 2024, kTgpCrc = 0xD6D611DDu;
 const Set kSets[] = {
-    {"daytona93", kDaytona93, std::size(kDaytona93), 0x900000, 0x860020},
-    {"daytona", kDaytona, std::size(kDaytona), 0x800000, 0x800020},
+    {"daytona93", "daytona", kDaytona93, std::size(kDaytona93), 0x900000, 0x860020},
+    {"daytona", nullptr, kDaytona, std::size(kDaytona), 0x800000, 0x800020},
 };
+
+// A set's files as MAME finds them: in its own archive, or, for a split clone
+// set (only the files it does not share with its parent), in the parent's
+// archive in the same folder (daytona.zip or daytona.7z beside
+// daytona93.zip). Every file is still checked against this set's own table:
+// the parent archive only supplies files, never decides what is right.
+struct Sources {
+    std::unique_ptr<Archive> own, parent;
+    std::string parent_tried; // the parent archive's name when one was needed, for messages
+    Archive *find(const char *file) const {
+        if (own->entries().count(file)) return own.get();
+        if (parent && parent->entries().count(file)) return parent.get();
+        return nullptr;
+    }
+};
+
+Sources open_sources(const std::string &path, const Set &set) {
+    Sources s;
+    s.own = open_archive(path);
+    if (!set.parent) return s;
+    const bool complete = std::all_of(set.loads, set.loads + set.count,
+                                      [&](const Load &l) { return s.own->entries().count(l.file) != 0; });
+    if (complete) return s;
+    // Plain string handling (no <filesystem>: the console ports build this).
+    const size_t slash = path.find_last_of("/\\");
+    const std::string dir = slash == std::string::npos ? std::string() : path.substr(0, slash + 1);
+    s.parent_tried = std::string(set.parent) + ".zip";
+    for (const char *ext : {".zip", ".7z"}) {
+        const std::string candidate = dir + set.parent + ext;
+        if (candidate == path) continue;
+        try {
+            s.parent = open_archive(candidate);
+            break;
+        } catch (const std::exception &) { // not there, or not an archive: as if absent
+        }
+    }
+    return s;
+}
 
 const Set &this_set() {
     for (const Set &s : kSets)
@@ -112,14 +153,18 @@ std::string hex8(uint32_t v) {
 
 } // namespace
 
-static std::vector<RomCheck> check_set(const Archive &z, const Set &set) { // every file of one set
+static std::vector<RomCheck> check_set(const Sources &src, const Set &set) { // every file of one set
     std::vector<RomCheck> out;
     for (const Load &l : std::span(set.loads, set.count)) {
         RomCheck c;
         c.file = l.file;
-        const auto it = z.entries().find(l.file);
-        if (it == z.entries().end()) c.problem = "missing";
-        else if (it->second.size != l.size) c.problem = "wrong size";
+        const Archive *z = src.find(l.file);
+        const auto it = z ? z->entries().find(l.file) : std::map<std::string, Archive::Entry>::const_iterator{};
+        if (!z) {
+            c.problem = "missing";
+            if (!src.parent_tried.empty() && !src.parent)
+                c.problem += " (a split " + std::string(set.name) + " set needs " + src.parent_tried + " beside it)";
+        } else if (it->second.size != l.size) c.problem = "wrong size";
         else if (it->second.has_crc && it->second.crc != l.crc)
             c.problem = "wrong CRC " + hex8(it->second.crc) + " (expected " + hex8(l.crc) + ")";
         else c.ok = true;
@@ -128,13 +173,14 @@ static std::vector<RomCheck> check_set(const Archive &z, const Set &set) { // ev
     return out;
 }
 
-std::vector<RomCheck> check_rom_set(const std::string &zip_path) { return check_set(*open_archive(zip_path), this_set()); }
+std::vector<RomCheck> check_rom_set(const std::string &zip_path) {
+    return check_set(open_sources(zip_path, this_set()), this_set());
+}
 
 std::vector<std::string> rom_sets_in(const std::string &zip_path) {
-    const auto z = open_archive(zip_path);
     std::vector<std::string> sets;
     auto full = [&](const Set &s) {
-        const auto checks = check_set(*z, s);
+        const auto checks = check_set(open_sources(zip_path, s), s);
         return std::all_of(checks.begin(), checks.end(), [](const RomCheck &c) { return c.ok; });
     };
     if (full(this_set())) sets.push_back(this_set().name);
@@ -144,7 +190,7 @@ std::vector<std::string> rom_sets_in(const std::string &zip_path) {
 }
 
 M2Board::Images import_rom_set(const std::string &zip_path) {
-    const auto z = open_archive(zip_path);
+    const Sources src = open_sources(zip_path, this_set());
     M2Board::Images img;
     img.program.assign(0x200000, 0);
     img.main_data.assign(0x2000000, 0);
@@ -160,6 +206,11 @@ M2Board::Images import_rom_set(const std::string &zip_path) {
 #ifdef M2_DC_NATIVE_HOST
         if (l.region >= SoundProgram) continue; // the host tools run silent: no sound ROM needed
 #endif
+        Archive *z = src.find(l.file);
+        if (!z)
+            throw ZipError(std::string(l.file) + ": missing from the " + set.name + " set" +
+                           (!src.parent_tried.empty() && !src.parent
+                                ? " (a split set needs " + src.parent_tried + " beside it)" : ""));
         const std::vector<uint8_t> data = z->read(l.file); // CRC against the archive's own
         if (data.size() != l.size || crc32(data.data(), data.size()) != l.crc)
             throw ZipError(std::string(l.file) + ": not the " + set.name + " ROM this build was recompiled from");
