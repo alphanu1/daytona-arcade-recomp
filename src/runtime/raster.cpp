@@ -17,9 +17,17 @@
 #include <array>
 #include <bit>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <numeric>
+#ifdef M2_RASTER_BANDS
+#include <atomic>
+#include <condition_variable>
+#include <functional>
+#include <mutex>
+#include <thread>
+#endif
 #include "compat/bit_cast.h"
 namespace rt {
 
@@ -108,6 +116,80 @@ struct Raster::Extra {
 #endif
 };
 
+struct Raster::Prepared {
+    GeoPoly poly; // projected; texture parameters divided by z
+    Extra extra;
+    int renderer = 0;
+    int clip[4] = {0, 0, 0, 0}; // left, right, top, bottom (inclusive)
+    int32_t miny = 0, maxy = 0;  // scanlines the polygon can touch: [miny, maxy)
+};
+
+#ifdef M2_RASTER_BANDS
+// Persistent workers; the calling thread takes tasks too. run() returns when
+// every task is done, so nothing outlives the job it was given.
+struct Raster::Pool {
+    explicit Pool(int workers) {
+        for (int i = 0; i < workers; i++) threads.emplace_back([this] { work(); });
+    }
+    ~Pool() {
+        {
+            std::lock_guard<std::mutex> lock(m);
+            stop = true;
+        }
+        wake.notify_all();
+        for (std::thread &t : threads) t.join();
+    }
+    void run(int count, const std::function<void(int)> &fn) {
+        {
+            std::lock_guard<std::mutex> lock(m);
+            job = &fn;
+            tasks = count;
+            next.store(0, std::memory_order_relaxed);
+            active = int(threads.size());
+            ++generation;
+        }
+        wake.notify_all();
+        take(fn, count);
+        std::unique_lock<std::mutex> lock(m);
+        done.wait(lock, [this] { return active == 0; });
+        job = nullptr;
+    }
+
+private:
+    void take(const std::function<void(int)> &fn, int count) {
+        for (int i; (i = next.fetch_add(1, std::memory_order_relaxed)) < count;) fn(i);
+    }
+    void work() {
+        uint64_t seen = 0;
+        for (;;) {
+            const std::function<void(int)> *fn;
+            int count;
+            {
+                std::unique_lock<std::mutex> lock(m);
+                wake.wait(lock, [&] { return stop || generation != seen; });
+                if (stop) return;
+                seen = generation;
+                fn = job;
+                count = tasks;
+            }
+            take(*fn, count);
+            std::lock_guard<std::mutex> lock(m);
+            if (--active == 0) done.notify_one();
+        }
+    }
+    std::vector<std::thread> threads;
+    std::mutex m;
+    std::condition_variable wake, done;
+    const std::function<void(int)> *job = nullptr;
+    int tasks = 0, active = 0;
+    uint64_t generation = 0;
+    bool stop = false;
+    std::atomic<int> next{0};
+};
+#else
+struct Raster::Pool {};
+#endif
+
 #ifdef M2_DC_MEMORY
 // The Dreamcast: the CPU rasterizer's buffers (1.25 MB) only once it renders
 // (the PVR draws the 3D there).
@@ -120,6 +202,22 @@ Raster::Raster() : dest_(512 * 512), fill_(512 * 512) {
         double raw_value = std::max((double(i) - 64.0) * 255.0 / 191.0, 0.0);
         gamma_[i] = u8(raw_value);
     }
+}
+
+Raster::~Raster() = default;
+
+int Raster::threads() const {
+#ifdef M2_RASTER_BANDS
+    if (threads_ > 0) return std::min(threads_, 64);
+    if (const char *env = std::getenv("M2_RASTER_THREADS")) {
+        const int n = std::atoi(env);
+        if (n > 0) return std::min(n, 64);
+    }
+    const unsigned hw = std::thread::hardware_concurrency();
+    return int(std::clamp(hw ? hw : 1u, 1u, 8u));
+#else
+    return 1;
+#endif
 }
 
 void Raster::set_wide_margin(int margin) {
@@ -173,6 +271,39 @@ void Raster::render(const std::vector<GeoPoly> &polys, int windows, const VideoM
         if (polys[a].z != polys[b].z) return polys[a].z < polys[b].z;
         return a > b;
     });
+#ifdef M2_RASTER_BANDS
+    const int nthreads = threads();
+    if (nthreads > 1 && clip_maxy >= clip_miny) {
+        // Prepare every polygon once, in drawing order; then bands of rows.
+        prepared_.resize(order.size());
+        size_t count = 0;
+        for (size_t i : order)
+            if (polys[i].window <= windows &&
+                prepare_one(polys[i], crtc_x, crtc_y, render_x, render_y, clip_minx, clip_maxx, clip_miny, clip_maxy,
+                            prepared_[count]))
+                ++count;
+        if (!pool_ || pool_threads_ != nthreads) {
+            pool_.reset();
+            pool_ = std::make_unique<Pool>(nthreads - 1);
+            pool_threads_ = nthreads;
+        }
+        // Several bands per thread, so a band full of scenery does not hold
+        // up the rest; each band costs a pass over the prepared list.
+        const int rows = clip_maxy - clip_miny + 1;
+        const int bands = std::min(rows, nthreads * 3);
+        const std::function<void(int)> band = [&](int b) {
+            const int lo = clip_miny + rows * b / bands;
+            const int hi = clip_miny + rows * (b + 1) / bands - 1; // inclusive
+            for (size_t k = 0; k < count; ++k) {
+                const Prepared &p = prepared_[k];
+                if (p.maxy <= lo || p.miny > hi) continue;
+                draw_prepared(p, lo, hi);
+            }
+        };
+        pool_->run(bands, band);
+        return;
+    }
+#endif
     for (size_t i : order)
         if (polys[i].window <= windows) render_one(polys[i], crtc_x, crtc_y, render_x, render_y, clip_minx, clip_maxx, clip_miny, clip_maxy);
 }
@@ -247,8 +378,37 @@ int Raster::hud_polygon_offset(const GeoPoly& poly) const {
     return 0;
 }
 
-void Raster::render_one(GeoPoly poly, int crtc_x, int crtc_y, int render_x, int render_y, int clip_minx, int clip_maxx,
-                        int clip_miny, int clip_maxy) {
+void Raster::render_one(const GeoPoly &poly, int crtc_x, int crtc_y, int render_x, int render_y, int clip_minx,
+                        int clip_maxx, int clip_miny, int clip_maxy) {
+    Prepared p;
+    if (prepare_one(poly, crtc_x, crtc_y, render_x, render_y, clip_minx, clip_maxx, clip_miny, clip_maxy, p))
+        draw_prepared(p, p.clip[2], p.clip[3]);
+}
+
+// Draw a prepared polygon's scanlines in [band_miny, band_maxy] (inclusive).
+// Clipping to a band only narrows the scanline loop: each scanline's values
+// are computed from the polygon setup, never from the scanline before.
+void Raster::draw_prepared(const Prepared &p, int band_miny, int band_maxy) {
+    int clip[4] = {p.clip[0], p.clip[1], std::max(p.clip[2], band_miny), std::min(p.clip[3], band_maxy)};
+    if (clip[3] < clip[2]) return;
+    const GeoPoly &poly = p.poly;
+    switch (poly.num_vertices) {
+    case 3: render_triangle(clip, p.renderer, p.extra, poly.v[0], poly.v[1], poly.v[2]); break;
+    case 4: render_polygon<4>(clip, p.renderer, p.extra, poly.v); break;
+    case 5: render_polygon<5>(clip, p.renderer, p.extra, poly.v); break;
+    case 6: render_polygon<6>(clip, p.renderer, p.extra, poly.v); break;
+    case 7: render_polygon<7>(clip, p.renderer, p.extra, poly.v); break;
+    case 8: render_polygon<8>(clip, p.renderer, p.extra, poly.v); break;
+    default: break;
+    }
+}
+
+bool Raster::prepare_one(const GeoPoly &source, int crtc_x, int crtc_y, int render_x, int render_y, int clip_minx,
+                         int clip_maxx, int clip_miny, int clip_maxy, Prepared &out) const {
+    // Built in place in `out` (one copy of the polygon, as the serial path
+    // always made: render_one took it by value).
+    out.poly = source;
+    GeoPoly &poly = out.poly;
     // Widescreen: a viewport spanning the screen extends into the side margins.
     const int wide = margin_ && poly.viewport[0] <= 0 && poly.viewport[2] >= 495 ? margin_ : 0;
     // model2_3d_project
@@ -275,7 +435,8 @@ void Raster::render_one(GeoPoly poly, int crtc_x, int crtc_y, int render_x, int 
         }
     }
     // model2_3d_render
-    Extra extra;
+    out.extra = Extra{};
+    Extra &extra = out.extra;
     const int renderer = (poly.texheader[0] >> 13) & 3;
     // rectangle(minx, maxx, miny, maxy) &= cliprect, in the renderer's offsets
     int clip[4] = {std::max(poly.viewport[0] - wide + render_x, clip_minx),
@@ -320,15 +481,23 @@ void Raster::render_one(GeoPoly poly, int crtc_x, int crtc_y, int render_x, int 
         }
     }
 
-    switch (poly.num_vertices) {
-    case 3: render_triangle(clip, renderer, extra, poly.v[0], poly.v[1], poly.v[2]); break;
-    case 4: render_polygon<4>(clip, renderer, extra, poly.v); break;
-    case 5: render_polygon<5>(clip, renderer, extra, poly.v); break;
-    case 6: render_polygon<6>(clip, renderer, extra, poly.v); break;
-    case 7: render_polygon<7>(clip, renderer, extra, poly.v); break;
-    case 8: render_polygon<8>(clip, renderer, extra, poly.v); break;
-    default: break;
+    if (poly.num_vertices < 3 || poly.num_vertices > 8) return false;
+    // Rows the polygon can touch, for skipping it in other bands (the draw
+    // itself clips exactly; round_coordinate is monotonic, NaN -> INT32_MIN).
+    int32_t miny = std::numeric_limits<int32_t>::max(), maxy = std::numeric_limits<int32_t>::min();
+    bool nan = false;
+    for (int i = 0; i < poly.num_vertices; i++) {
+        if (std::isnan(poly.v[i].y)) nan = true;
+        const int32_t r = round_coordinate(poly.v[i].y);
+        miny = std::min(miny, r), maxy = std::max(maxy, r);
     }
+    if (nan) miny = clip[2], maxy = clip[3] + 1; // let the draw decide, as the serial path does
+    out.miny = std::max(miny, clip[2]);
+    out.maxy = std::min(maxy, clip[3] + 1);
+    if (out.maxy - out.miny <= 0) return false;
+    out.renderer = renderer;
+    std::copy_n(clip, 4, out.clip);
+    return true;
 }
 
 #ifdef M2_VITA_RENDER_OPT

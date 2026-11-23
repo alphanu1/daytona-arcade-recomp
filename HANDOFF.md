@@ -1,5 +1,60 @@
 # Handoff
 
+## Headless harness speed: banded rasterizer, m2run --no-render (2026-11-22)
+
+Measured first (`m2run --profile`, new): a headless Deluxe '93 race frame
+(6,000 frames, `inputs-advanced-finish.txt`, 8-core desktop, clang-cl
+Release) took 9.0 ms: core 0.47, geometry 0.52, sound 0.46, video 7.57 ms,
+of which the CPU rasterizer 6.25, tile draw 0.97, composite 0.31, tile
+cache 0.04. The desktop game draws 3D on the GPU, so this is the harness's
+cost, not the game's: game logic is about a tenth of a 17.4 ms frame.
+
+- `m2run --no-render` (`M2Board::set_render`): never draws the screen, for
+  runs that compare counts, sound or traces but no pixels. Same i960/TGP
+  instructions, interrupts and sound bytes; 9.2 s for 6,000 frames vs 54 s
+  drawn (5.9x) on the same PC. Refuses `--dump`.
+- `m2run --profile`: per-stage ms/frame from the existing FrameProfiler and
+  VideoProfile, now wired up. `--hash-frames`: one hash over every drawn
+  frame's screen hash, to compare whole runs. `M2Board::screens_drawn()`
+  counts screen updates (skipped frames are not profiled or hashed).
+- CPU rasterizer bands (`M2_RASTER_BANDS`, desktop only; not Vita/Dreamcast):
+  polygons are prepared once in MAME's order, then bands of scanlines (3 per
+  thread) are drawn on a persistent pool, each band drawing every polygon
+  clipped to its rows. Each scanline's values come from the polygon setup
+  alone (the edge walk in render_polygon restarts to the same edge at any
+  scanline: every edge it skips has v2.y below the current line), and depth
+  fill and colour are per pixel, so output is identical. Threads: automatic
+  (cores, at most 8), `M2_RASTER_THREADS=N`, or `Raster::set_threads`; 1 is
+  the serial path. Verified with `--hash-frames` over all 6,000 drawn frames:
+  hash `b3bb1404b02fb0c7` at 1, 2, 3, 5, 8, 16 and 64 threads, and
+  `7551e94afb4f7629` at 1 and 8 threads with `--aspect 16:9 --hud-edges`.
+  Raster 6.38 -> 1.63 ms/frame (3.9x); whole run 61.9 -> 30.7 s with
+  hashing. Gains flatten past about 5 threads on 8 cores. ctest 18/18 (2 Lua
+  tests skipped: no Lua). The app is unchanged in practice: with the GPU
+  renderer the CPU rasterizer does not run, and the pool starts only on the
+  first CPU render.
+- `scripts/bench_m2run.py`: runs builds interleaved N times, reports median,
+  min, max and spread, and fails if any run's counts or hashes differ. Single
+  runs here varied 10-20% (101-117 frames/s across three identical runs), so
+  compare medians, never one run.
+
+Not adopted, with measurements (what not to re-propose):
+
+- `M2_FAST_BUS`/`M2_FAST_TGP`/`M2_FAST_GEO` on desktop: identical results,
+  48.6 -> 47.6 s (about 2%) on the run above. Not worth giving up the
+  reference build `fast_paths.h` keeps for desktop.
+- Link-time optimisation (`CMAKE_INTERPROCEDURAL_OPTIMIZATION=ON`, clang-cl
+  `-flto`): identical results; +5% on one race, -5.8% (median of 3) on
+  `race_basic`, inside the 12-20% run-to-run spread; `--no-render` equal
+  (5.69 vs 5.71 s). Costs a 330 s link of `m2run` alone.
+
+Setup findings on a fresh Windows checkout: a build folder copied with the
+project from another path fails CMake (cached source path); move it aside.
+A MAME split `daytona93.zip` (12 files) is rejected for `mpr-16528.10`;
+merging the 18 shared parent files from `daytona.zip` (CRCs as in
+`rom_import.cpp`) makes it complete. setup.py stops at the first rejected set,
+so Revision A was not tried until Deluxe '93 imported.
+
 ## Widescreen opponent visibility (2026-10-14)
 
 Both ROM revisions use enhancement hooks before the opponent car-cell bit test

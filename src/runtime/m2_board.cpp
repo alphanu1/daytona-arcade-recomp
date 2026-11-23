@@ -230,7 +230,7 @@ void M2Board::set_wide_margin(int pixels) {
 }
 
 void M2Board::vblank_end() {
-    if (frame_skip_ && frame_ % uint64_t(frame_skip_ + 1) != 0) { // draw mode: keep the last picture
+    if (!render_ || (frame_skip_ && frame_ % uint64_t(frame_skip_ + 1) != 0)) { // draw mode: keep the last picture
         ++frame_;
         return;
     }
@@ -247,6 +247,7 @@ void M2Board::vblank_end() {
 #endif
     m.tex_generation = tex_generation_;
     video_->screen_update(geo_->polys, geo_->windows(), m);
+    ++screens_drawn_;
     ++frame_;
 }
 

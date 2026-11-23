@@ -141,6 +141,9 @@ else()
     message(STATUS "extern/lzma not found: 7z ROM sets unsupported (run scripts/setup.py)")
 endif()
 target_link_libraries(runtime PUBLIC trace i960)
+# The CPU rasterizer draws bands of scanlines on worker threads (raster.h).
+find_package(Threads REQUIRED)
+target_link_libraries(runtime PUBLIC Threads::Threads)
 
 # YM3438 (the sound board's FM chip): ymfm, BSD-3, fetched by
 # scripts/setup.py into extern/ymfm.

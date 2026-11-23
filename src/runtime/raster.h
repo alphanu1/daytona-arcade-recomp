@@ -20,7 +20,20 @@
 #include <cstdint>
 #include <cstddef>
 #include <array>
+#include <memory>
 #include <vector>
+
+// Banded drawing: polygons are prepared once (projection and setup, in MAME's
+// order), then horizontal bands of scanlines are drawn on several threads,
+// each band drawing every polygon in that same order clipped to its rows.
+// Every scanline's start values come from the polygon setup alone, and depth
+// fill and colour are per pixel, so each pixel sees exactly the polygons and
+// arithmetic of the serial path: the output is identical. (MAME's poly.h also
+// splits work by scanlines.) Not on the Vita (its shade cache is shared
+// across polygons) or the Dreamcast (one core).
+#if !defined(M2_VITA_RENDER_OPT) && !defined(M2_DC_MEMORY) && !defined(M2_DC_SPEED)
+#define M2_RASTER_BANDS 1
+#endif
 
 namespace rt {
 
@@ -37,6 +50,15 @@ struct VideoMem {
 class Raster {
 public:
     Raster();
+    ~Raster();
+    Raster(const Raster &) = delete;
+    Raster &operator=(const Raster &) = delete;
+
+    // Threads drawing bands (M2_RASTER_BANDS): 0 = automatic (the
+    // M2_RASTER_THREADS environment variable if set, else the host's cores, at
+    // most 8); 1 = the serial path. The picture is the same either way.
+    void set_threads(int threads) { threads_ = threads; }
+    int threads() const;
 
     // MAME render_polygons: clear, then draw windows from the last down to
     // 0, each in z-bucket order (low to high z; newest first within a
@@ -102,7 +124,19 @@ private:
     std::vector<std::size_t> order_;
 #endif
 
-    void render_one(GeoPoly poly, int crtc_x, int crtc_y, int render_x, int render_y, int clip_minx, int clip_maxx,
+    // A polygon projected and set up for drawing (render_one's first half).
+    struct Prepared;
+    struct Pool;
+    int threads_ = 0;
+#ifdef M2_RASTER_BANDS
+    int pool_threads_ = 0;
+    std::unique_ptr<Pool> pool_;
+    std::vector<Prepared> prepared_;
+#endif
+    bool prepare_one(const GeoPoly &source, int crtc_x, int crtc_y, int render_x, int render_y, int clip_minx, int clip_maxx,
+                     int clip_miny, int clip_maxy, Prepared &out) const;
+    void draw_prepared(const Prepared &p, int band_miny, int band_maxy);
+    void render_one(const GeoPoly &poly, int crtc_x, int crtc_y, int render_x, int render_y, int clip_minx, int clip_maxx,
                     int clip_miny, int clip_maxy);
     template <bool Translucent> void draw_scanline_solid(int32_t y, int32_t x0, int32_t x1, const float *start, const float *dpdx, const Extra &o);
     template <bool Translucent> void draw_scanline_tex(int32_t y, int32_t x0, int32_t x1, const float *start, const float *dpdx, const Extra &o);
