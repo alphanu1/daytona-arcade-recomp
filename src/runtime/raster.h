@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <array>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -72,6 +73,15 @@ public:
     }
     void render(const std::vector<GeoPoly> &polys, int windows, const VideoMem &mem, int crtc_x, int crtc_y, int render_x,
                 int render_y, int clip_minx, int clip_maxx, int clip_miny, int clip_maxy);
+    // render() in two halves, so the caller can draw something else (the
+    // tilemap layers) while the bands draw: render_start sets up and hands
+    // the bands to the workers; finish() joins them and returns when the
+    // layer is complete. `mem`'s memories must not change in between, and
+    // nothing may read pixels() before finish(). Serial builds draw it all
+    // in render_start.
+    void render_start(const std::vector<GeoPoly> &polys, int windows, const VideoMem &mem, int crtc_x, int crtc_y,
+                      int render_x, int render_y, int clip_minx, int clip_maxx, int clip_miny, int clip_maxy);
+    void finish();
 
     const uint32_t *pixels() const { return dest_.data(); } // stride() x 512, 0x00RRGGBB
     int stride() const { return stride_; }                   // 512, wider for widescreen
@@ -132,6 +142,7 @@ private:
     int pool_threads_ = 0;
     std::unique_ptr<Pool> pool_;
     std::vector<Prepared> prepared_;
+    std::function<void(int)> band_job_;
 #endif
     bool prepare_one(const GeoPoly &source, int crtc_x, int crtc_y, int render_x, int render_y, int clip_minx, int clip_maxx,
                      int clip_miny, int clip_maxy, Prepared &out) const;

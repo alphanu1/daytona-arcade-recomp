@@ -10,6 +10,7 @@
 //           (the launcher's "Skip launcher" is a saved --autostart)
 //           [--fullscreen] [--frames N] [--audio native|reference] [--profile NAME]
 //           (--profile: a separate data folder, e.g. a second cabinet for link play)
+//           [--frame-stats] (present intervals and emulation time, printed on exit)
 //
 // In the game: Esc opens the launcher (resume, reset, controls), F11
 // toggles fullscreen. Controls are set in the launcher and saved.
@@ -19,6 +20,7 @@
 #include "app/startup_error.h"
 #include "app/ffb.h"
 #include "app/pacing.h"
+#include "app/frame_stats.h"
 #include "runtime/test_hold.h"
 #include "app/link_socket.h"
 #include "app/gpu/gpu_renderer.h"
@@ -201,6 +203,7 @@ int main(int argc, char **argv) {
     cfg.load();
     uint64_t max_frames = 0;
     bool autostart = false;
+    std::unique_ptr<app::FrameStats> frame_stats; // --frame-stats
     for (int i = 1; i < argc; i++) {
         if (!std::strcmp(argv[i], "--rom") && i + 1 < argc) cfg.rom_path = argv[++i];
         else if (!std::strcmp(argv[i], "--gpu") && i + 1 < argc) cfg.gpu = argv[++i];
@@ -214,6 +217,7 @@ int main(int argc, char **argv) {
         else if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) max_frames = std::strtoull(argv[++i], nullptr, 10);
         else if (!std::strcmp(argv[i], "--fullscreen")) cfg.fullscreen = true;
         else if (!std::strcmp(argv[i], "--autostart")) autostart = true;
+        else if (!std::strcmp(argv[i], "--frame-stats")) frame_stats = std::make_unique<app::FrameStats>();
         else if (!std::strcmp(argv[i], "--profile") && i + 1 < argc) ++i; // read above
     }
 
@@ -517,6 +521,7 @@ int main(int argc, char **argv) {
         if (game && !in_launcher)
             if (const uint64_t wait = pacer.wait_ns(SDL_GetTicksNS())) SDL_DelayPrecise(wait); // VRR: hold the frame
         const uint64_t now = SDL_GetTicksNS();
+        int frames_run = 0; // --frame-stats: game frames this present
         if (game && !in_launcher) {
             game->set_aspect(cfg.aspect_ratio()); // widescreen: no-op unless it changed
             game->set_hud_edges(cfg.hud_edges);
@@ -541,7 +546,10 @@ int main(int argc, char **argv) {
                 rt::Inputs inputs = cfg.controls.sample(SDL_GetKeyboardState(nullptr), devices);
                 if (cfg.hold_test != test_hold.armed()) cfg.hold_test ? test_hold.arm() : test_hold.cancel();
                 if (test_hold.apply(game->frames(), inputs.in0)) cfg.hold_test = false; // held: the box clears
+                const uint64_t run_start = frame_stats ? SDL_GetTicksNS() : 0;
                 game->run_frame(inputs);
+                if (frame_stats) frame_stats->game_frame(SDL_GetTicksNS() - run_start);
+                ++frames_run;
 #ifdef M2_MOBILE
                 touch.consumed();
                 cfg.controls.touch = touch.values;
@@ -703,9 +711,14 @@ int main(int argc, char **argv) {
             }
         }
         SDL_SubmitGPUCommandBuffer(cmd);
+        if (frame_stats) {
+            if (game && !in_launcher && have_frame && swap) frame_stats->presented(SDL_GetTicksNS(), frames_run);
+            else frame_stats->paused();
+        }
     }
 
     save_nv();
+    if (frame_stats) frame_stats->print();
     cfg.save();
     if (game) std::printf("daytona: %llu frames\n", (unsigned long long)game->frames());
     if (native_audio.available()) {

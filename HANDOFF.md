@@ -1,5 +1,45 @@
 # Handoff
 
+## Tilemaps beside the raster bands; daytona --frame-stats (2026-11-22)
+
+Correction to the entry below: it says the app does not use the CPU
+rasterizer. Wrong: `renderer = "software"` (CPU, exact) is the launcher's
+default, so the banded rasterizer speeds up the game itself, not only the
+headless harness. Found with `--frame-stats` (below): a fresh profile logs
+`renderer software (CPU)`.
+
+- `Raster::render_start` / `finish`: render() in two halves. On the standard
+  path (no external 3D, not widescreen with HUD at the edges, where the
+  front layers decide the HUD's polygon move first), `Video::screen_update`
+  starts the bands, draws the back and front tilemaps on its own thread into
+  screen_/sys24_, then joins. Separate buffers, composed in the same order.
+  Whole-run hashes against the previous video.cpp (6,000 frames,
+  `inputs-advanced-finish.txt`): native `b3bb1404b02fb0c7`, 16:9
+  `a925af9d7a98d8de`, 16:9 + HUD edges `7551e94afb4f7629`, frame skip 1
+  `36fab3dcf4f8755e`, all identical. Profile, ms per drawn frame: raster
+  1.63 -> 0.08 (now the wait for the bands), tile draw 0.85 -> 1.38 (shares
+  the cores), video total 2.78 -> 1.83. `bench_m2run.py` on `race_basic`:
+  median 25.37 -> 21.59 s, spread 27% (noisy; about 15%). ctest 20/20.
+- `daytona --frame-stats`: present intervals, game frames per present and
+  emulation time per frame, printed on exit (src/app/frame_stats.h). Windows:
+  the GUI build prints to the parent's console, or to daytona.log in the
+  profile folder when there is none (start it from pythonw or Explorer to get
+  the log). Use `--profile NAME` so a test run does not touch real settings.
+
+Measured on this PC (60 Hz display, Deluxe '93 attract, 3,600 frames each):
+
+| pacing, API | presents late (> 1.5x median) | p99 / max ms | repeats / catch-ups | emulation p50 / max ms |
+|---|---|---|---|---|
+| clock (default), D3D12 | 57 | 25.6 / 33.1 | 246 / 92 | 2.64 / 4.84 |
+| sync display, D3D12 | 45 | 25.3 / 33.2 | 2 / 0 | 2.74 / 5.37 |
+| sync display, Vulkan | 0 | 17.4 / 18.2 | 0 / 0 | 2.78 / 12.3 |
+
+Emulation is never the cause: at most 12 ms of a 16.7 ms refresh. Clock
+pacing at 57.52 Hz on 60 Hz repeats a picture about 2.5 times a second by
+design (about 155 of the 246). The late presents are on the presentation
+side: D3D12 here misses refreshes that Vulkan does not. One PC and one
+driver, not a general result.
+
 ## Headless harness speed: banded rasterizer, m2run --no-render (2026-11-22)
 
 Measured first (`m2run --profile`, new): a headless Deluxe '93 race frame

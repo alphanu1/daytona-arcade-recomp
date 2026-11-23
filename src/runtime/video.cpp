@@ -879,6 +879,18 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
     }
     profile_.composite += ticks() - before;
 #else
+#ifdef M2_RASTER_BANDS
+    // The 3D layer draws on the rasterizer's workers while this thread draws
+    // the tilemap layers: separate buffers (the raster's own; screen_ and
+    // sys24_ here), composed below in the same order as ever, so the picture
+    // is the same. Not with external 3D (no CPU 3D layer) or the HUD at the
+    // edges (the front layers decide where the HUD's polygons go first).
+    const bool early_raster = !external_3d_ && !(margin_ && hud_edges_) && !render_done_ && !polys.empty();
+    if (early_raster)
+        raster_.render_start(polys, windows, mem, crtc_x_ + margin_, crtc_y_, render_x_ + margin_, render_y_, 0,
+                             width() - 1, 0, H - 1);
+    bool front_drawn = false;
+#endif
     before = ticks();
     std::fill(screen_.begin(), screen_.end(), pens_[0]);
 #ifdef M2_DC_SPEED
@@ -947,9 +959,24 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
         if (race_hud != hud_on_) { hud_on_ = race_hud; set_raster_hud_moves(); render_done_ = false; }
     }
     if (!render_done_ && !polys.empty()) {
-        before = ticks();
-        raster_.render(polys, windows, mem, crtc_x_ + margin_, crtc_y_, render_x_ + margin_, render_y_, 0,
-                       width() - 1, 0, H - 1);
+#ifdef M2_RASTER_BANDS
+        if (early_raster) {
+            // The front layers too while the bands finish (sys24_ is free:
+            // the back layers were copied out above).
+            before = ticks();
+            std::fill(sys24_.begin(), sys24_.end(), 0u);
+            for (int layer = 3; layer >= 0; --layer) draw(sys24_, (layer << 1) | 1, 0);
+            profile_.tile_draw += ticks() - before;
+            front_drawn = true;
+            before = ticks();
+            raster_.finish(); // raster: the time still waited for the bands
+        } else
+#endif
+        {
+            before = ticks();
+            raster_.render(polys, windows, mem, crtc_x_ + margin_, crtc_y_, render_x_ + margin_, render_y_, 0,
+                           width() - 1, 0, H - 1);
+        }
         profile_.raster = ticks() - before;
         if (margin_) { // widescreen: how much of the original screen the 3D layer covers
             size_t covered = 0;
@@ -970,7 +997,11 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
     if (render_done_) copy_trans(raster_.pixels(), size_t(raster_.stride()), width());
     profile_.composite += ticks() - before;
 #ifndef M2_VITA_RENDER_OPT
+#ifdef M2_RASTER_BANDS
+    if (!hud_edges && !front_drawn) {
+#else
     if (!hud_edges) {
+#endif
         before = ticks();
         std::fill(sys24_.begin(), sys24_.end(), 0u);
         for (int layer = 3; layer >= 0; --layer) draw(sys24_, (layer << 1) | 1, 0);

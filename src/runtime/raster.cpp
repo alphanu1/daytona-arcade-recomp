@@ -139,7 +139,9 @@ struct Raster::Pool {
         wake.notify_all();
         for (std::thread &t : threads) t.join();
     }
-    void run(int count, const std::function<void(int)> &fn) {
+    // Hand `count` tasks to the workers and return; `fn` must live until
+    // finish() returns.
+    void start(int count, const std::function<void(int)> &fn) {
         {
             std::lock_guard<std::mutex> lock(m);
             job = &fn;
@@ -149,7 +151,11 @@ struct Raster::Pool {
             ++generation;
         }
         wake.notify_all();
-        take(fn, count);
+    }
+    // Take the tasks still waiting, then wait for every worker's.
+    void finish() {
+        if (!job) return;
+        take(*job, tasks);
         std::unique_lock<std::mutex> lock(m);
         done.wait(lock, [this] { return active == 0; });
         job = nullptr;
@@ -204,7 +210,7 @@ Raster::Raster() : dest_(512 * 512), fill_(512 * 512) {
     }
 }
 
-Raster::~Raster() = default;
+Raster::~Raster() { finish(); } // no band may still be drawing into members being destroyed
 
 int Raster::threads() const {
 #ifdef M2_RASTER_BANDS
@@ -245,6 +251,19 @@ uint64_t Raster::hash(int minx, int maxx, int miny, int maxy) const {
 
 void Raster::render(const std::vector<GeoPoly> &polys, int windows, const VideoMem &mem, int crtc_x, int crtc_y,
                     int render_x, int render_y, int clip_minx, int clip_maxx, int clip_miny, int clip_maxy) {
+    render_start(polys, windows, mem, crtc_x, crtc_y, render_x, render_y, clip_minx, clip_maxx, clip_miny, clip_maxy);
+    finish();
+}
+
+void Raster::finish() {
+#ifdef M2_RASTER_BANDS
+    if (pool_) pool_->finish();
+#endif
+}
+
+void Raster::render_start(const std::vector<GeoPoly> &polys, int windows, const VideoMem &mem, int crtc_x, int crtc_y,
+                          int render_x, int render_y, int clip_minx, int clip_maxx, int clip_miny, int clip_maxy) {
+    finish(); // a frame still drawing (never expected: callers finish first)
     mem_ = &mem;
 #ifdef M2_DC_MEMORY
     if (dest_.empty()) {
@@ -289,9 +308,11 @@ void Raster::render(const std::vector<GeoPoly> &polys, int windows, const VideoM
         }
         // Several bands per thread, so a band full of scenery does not hold
         // up the rest; each band costs a pass over the prepared list.
+        // Captured by value: the job runs after render_start returns (until
+        // finish). It reads only prepared_, mem_'s memories and gamma_.
         const int rows = clip_maxy - clip_miny + 1;
         const int bands = std::min(rows, nthreads * 3);
-        const std::function<void(int)> band = [&](int b) {
+        band_job_ = [this, rows, bands, count, clip_miny](int b) {
             const int lo = clip_miny + rows * b / bands;
             const int hi = clip_miny + rows * (b + 1) / bands - 1; // inclusive
             for (size_t k = 0; k < count; ++k) {
@@ -300,7 +321,7 @@ void Raster::render(const std::vector<GeoPoly> &polys, int windows, const VideoM
                 draw_prepared(p, lo, hi);
             }
         };
-        pool_->run(bands, band);
+        pool_->start(bands, band_job_);
         return;
     }
 #endif
