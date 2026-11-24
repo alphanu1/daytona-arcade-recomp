@@ -534,15 +534,18 @@ target_link_libraries(test_trace PRIVATE trace)
 add_test(NAME trace COMMAND test_trace ${CMAKE_CURRENT_BINARY_DIR})
 
 # The MAME plugin's Lua core against the C++ trace library (needs lupa).
+# The scripts run test_trace and tracediff from the folder given first: the
+# targets' own folder (build/Release with multi-config generators such as
+# Visual Studio, the build folder otherwise).
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_FOUND)
     add_test(NAME lua_core
         COMMAND Python3::Interpreter ${CMAKE_SOURCE_DIR}/tests/lua_core_test.py
-                ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/lua_core)
+                $<TARGET_FILE_DIR:test_trace> ${CMAKE_CURRENT_BINARY_DIR}/lua_core)
     set_tests_properties(lua_core PROPERTIES SKIP_RETURN_CODE 77)
     add_test(NAME lua_plugin_mock
         COMMAND Python3::Interpreter ${CMAKE_SOURCE_DIR}/tests/lua_plugin_mock_test.py
-                ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/lua_plugin_mock)
+                $<TARGET_FILE_DIR:tracediff> ${CMAKE_CURRENT_BINARY_DIR}/lua_plugin_mock)
     set_tests_properties(lua_plugin_mock PROPERTIES SKIP_RETURN_CODE 77)
     # Second decode reference: Ghidra SLEIGH (third-party i960 module via
     # pypcode). Needs scripts/fetch_ghidra_i960.sh and pip install pypcode.

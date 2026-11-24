@@ -13,7 +13,8 @@ and OUTDIR/tgp_program.bin (the TGP program the i960
 uploads at boot, cut from main_data), laid out as MAME's ROM_START(daytona93)
 loads them: ROM_LOAD32_WORD pairs interleave 16-bit words, then ROM_COPY
 mirrors. Every file is checked against the CRC32 in that ROM_START; anything
-else is refused.
+else is refused. A MAME split set (daytona93 without the files it shares with
+its parent) takes those files from daytona.zip in the same folder, as MAME does.
 
 Output is game data: OUTDIR must be git-ignored (build/ is). Never commit it.
 """
@@ -71,12 +72,31 @@ SIZES = {"program": 0x200000, "main_data": 0x2000000, "copro_data": 0x800000, "c
 TGP_PROGRAM = ("main_data", 0x860020, 2024 * 4, 0xD6D611DD)
 
 
+def open_reader(zpath):
+    """read(name) from the set's zip, else from the parent's (daytona.zip) beside it."""
+    z = zipfile.ZipFile(zpath)
+    parent_path = os.path.join(os.path.dirname(os.path.abspath(zpath)), "daytona.zip")
+    parent = None
+    if os.path.abspath(zpath) != parent_path and os.path.exists(parent_path):
+        parent = zipfile.ZipFile(parent_path)
+    own = set(os.path.basename(n) for n in z.namelist())
+
+    def read(fname):
+        if fname in own:
+            return z.read(fname)
+        if parent is not None and fname in parent.namelist():
+            return parent.read(fname)
+        hint = "" if parent is not None else " (a split set needs daytona.zip beside it)"
+        sys.exit(f"m2import: {fname}: missing from the daytona93 set{hint}; refusing")
+    return read
+
+
 def main():
     zpath, out = sys.argv[1], sys.argv[2]
-    z = zipfile.ZipFile(zpath)
+    read = open_reader(zpath)
     regions = {name: bytearray(size) for name, size in SIZES.items()}
     for fname, crc, region, off, size in LOADS:
-        data = z.read(fname)
+        data = read(fname)
         got = zlib.crc32(data) & 0xFFFFFFFF
         if len(data) != size or got != crc:
             sys.exit(f"m2import: {fname}: size {len(data):#x} crc {got:08x}, expected {size:#x} {crc:08x}; refusing")
@@ -85,7 +105,7 @@ def main():
             r[off + w * 4] = data[w * 2]
             r[off + w * 4 + 1] = data[w * 2 + 1]
     for fname, crc, region, off, size, swap in SOUND_LOADS:
-        data = z.read(fname)
+        data = read(fname)
         got = zlib.crc32(data) & 0xFFFFFFFF
         if len(data) != size or got != crc:
             sys.exit(f"m2import: {fname}: size {len(data):#x} crc {got:08x}, expected {size:#x} {crc:08x}; refusing")

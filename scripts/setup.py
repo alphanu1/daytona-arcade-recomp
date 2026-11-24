@@ -257,6 +257,7 @@ def main():
     configure_and_build(build)
 
     games = []  # (set, executable)
+    rejected = []  # sets whose ROMs were refused: reported at the end, the other set still built
     for romset, label in SETS:
         if not any(os.path.exists(os.path.join(ROOT, "roms", romset + "." + e)) for e in ("zip", "7z")):
             continue
@@ -268,7 +269,9 @@ def main():
         r = run([sys.executable, os.path.join("scripts", "recompile.py"), "--set", romset, "--build-dir", set_dir],
                 check=False)
         if r.returncode == 3:  # recompile.py ROM_REJECTED_EXIT
-            sys.exit(ROM_REJECTED.format(set=romset))
+            say(f"{label}: ROM set rejected (see the end); continuing")
+            rejected.append(romset)
+            continue
         if r.returncode:
             sys.exit(BUILD_FAILED)
         # One launcher for both games: build/daytona starts daytona-93 (Deluxe '93) or daytona-rev
@@ -278,7 +281,7 @@ def main():
                     if os.path.exists(p)), None)
         if exe:
             games.append((label, exe))
-    if not games:
+    if not games and not rejected:
         say("No ROM set: the tools are built, the game is not")
         print(no_rom_help())
 
@@ -295,6 +298,10 @@ def main():
                   + os.path.relpath(launcher, ROOT))
     if games:
         print()
+    for romset in rejected:
+        print(ROM_REJECTED.format(set=romset))
+    if rejected:
+        sys.exit(1)
 
 
 EXE = ".exe" if WINDOWS else ""
@@ -318,6 +325,9 @@ epr-16534a.6, epr-16535a.7) at roms/daytona93.zip, and daytona (Revision A,
 1994: epr-16722a.12, epr-16723a.13, epr-16724a.6, epr-16725a.7) at
 roms/daytona.zip (or .7z). Other sets (daytonas, daytonat, daytonase, ...)
 have different program ROMs and cannot be used, whatever the file is called.
+
+A MAME split daytona93 set (only the files it does not share with daytona)
+also needs the daytona set beside it, at roms/daytona.zip or .7z.
 
 Put the right set under the right name and run setup again.
 See docs/getting-started.md, "Troubleshooting".

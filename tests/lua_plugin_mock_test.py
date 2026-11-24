@@ -22,7 +22,9 @@ except ImportError:
     sys.exit(77)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PLUGINS = os.path.join(ROOT, "tools", "mame-plugins")
+# Forward slashes: the path goes into a Lua string literal (package.path),
+# where Windows backslashes would be escapes; Lua opens either form.
+PLUGINS = os.path.join(ROOT, "tools", "mame-plugins").replace(os.sep, "/")
 
 MOCK = r"""
 local M = { notifiers = { reset = {}, frame = {}, stop = {} }, wtaps = {}, rtaps = {},

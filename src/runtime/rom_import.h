@@ -2,7 +2,9 @@
 // the board runs from, in memory: every file CRC-checked against MAME's
 // ROM_START for the set this build was recompiled from (M2_ROMSET:
 // daytona93, the default, or daytona, Revision A), then laid out as MAME
-// loads it (ROM_LOAD32_WORD interleave, ROM_COPY mirrors). The build's
+// loads it (ROM_LOAD32_WORD interleave, ROM_COPY mirrors). A MAME split set
+// (daytona93 without the files it shares with daytona) takes those files from
+// the parent's archive in the same folder, as MAME does. The build's
 // importer (tools/m2import) uses the same tables; scripts/m2import.py is the
 // zip-only daytona93 reference they were checked against.
 #pragma once
