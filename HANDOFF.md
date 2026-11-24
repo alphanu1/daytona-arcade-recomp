@@ -20,8 +20,13 @@ Found setting up a fresh Windows checkout with MAME's split `daytona93.zip`
   merging.
 - `setup.py`: a rejected set no longer stops setup; the other set is still
   recompiled and built, the rejections are printed at the end, and setup
-  exits 1. The message mentions split sets. Not run end to end with a
-  rejected set (a full setup is about 25 minutes); syntax-checked only.
+  exits 1. The message mentions split sets. Verified 2026-11-23: a clean
+  checkout of this branch alone (fresh build folders), full `daytona93.zip`
+  and a `daytona.zip` with `epr-16722a.12` altered: m2import named that
+  file, setup said "ROM set rejected ... continuing", built daytona93, ran
+  ctest (20/20), printed the rejection at the end and exited 1. An altered
+  file the game never loads (the drive board's `.ic12`) is not checked and
+  the set is accepted; change a file in the set's table to test this.
 - Lua tests: they had only ever been skipped here (no `lupa`). With `lupa`
   (`setup.py --test-extras`), both failed on Windows: CMake passed the build
   folder, but Visual Studio puts `test_trace` and `tracediff` in
